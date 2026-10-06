@@ -53,6 +53,11 @@ foreach ($file in Get-ChildItem $repo -Filter *.cmd) {
     Check "$($file.Name) je ASCII s konci řádků CRLF" "$($text -notmatch '[^\x00-\x7F]') $($text -notmatch '(?<!\r)\n')" 'True True'
 }
 
+# Číslo verze je na dvou místech a při vydání se snadno změní jen jedno.
+$inScript = if ([IO.File]::ReadAllText("$repo\Branocesta.ps1") -match "\`$version = '([\d.]+)'") { $Matches[1] }
+$inChangelog = if ([IO.File]::ReadAllText("$repo\CHANGELOG.md") -match '(?m)^## \[(\d[\d.]*)\]') { $Matches[1] }
+Check 'verze v Branocesta.ps1 sedí s nejnovější v CHANGELOG.md' $inScript $inChangelog
+
 # ---- Popis vydání ----
 
 $spac, $sluzbak, $mesec = $apps

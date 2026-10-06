@@ -24,24 +24,29 @@ Otevřeš bránu, klikneš na **Spustit** a jsi v aplikaci. Brána se přitom za
 
 ## Instalace
 
-```
-git clone https://github.com/JohnyLeeJohnes/branocesta.git
-```
+1. Stáhni **[Branocesta.zip](https://github.com/JohnyLeeJohnes/branocesta/releases/latest/download/Branocesta.zip)**.
+   Odkaz vede vždycky na nejnovější vydání.
+2. Klikni na stažený ZIP pravým tlačítkem, zvol **Vlastnosti**, dole zaškrtni **Odblokovat** a potvrď.
+3. Rozbal ho tam, kde má brána zůstat, třeba do Dokumentů.
+4. Ve složce `Branocesta` poklepej na **`install.cmd`**. Vytvoří zástupce **Bránocesta** s ikonou v nabídce
+   Start, na ploše a přímo ve složce. Přes něj se brána spouští jako každá jiná aplikace, bez okna konzole.
+5. Otevři bránu. Spáče, Službák a Měšec si stáhne a nainstaluje sama.
 
-Ve složce `branocesta` pak poklepej na **`install.cmd`**. Vytvoří zástupce **Bránocesta** s ikonou v nabídce
-Start, na ploše a přímo ve složce. Přes něj se brána spouští jako každá jiná aplikace, bez okna konzole.
+> **Proč odblokovat?** Windows si soubory stažené z internetu označí a skripty s tímhle označením nemusí
+> spustit. Když ZIP odblokuješ ještě před rozbalením, označení se na rozbalené soubory nepřenese.
+> `install.cmd` ho ze souborů sundá i sám, jenže k tomu ho Windows nejdřív musí nechat spustit.
 
 - **Jen vyzkoušet:** poklepej na `Branocesta.cmd`, spustí bránu bez vytváření zástupců.
+- **Nová verze brány:** stáhni ji stejně a rozbal přes tu starou. Nainstalované aplikace zůstanou, jsou
+  uložené jinde.
 - **Přesunutí složky:** zástupce ukazuje tam, kde brána leží. Po přesunutí spusť `install.cmd` znovu.
 - **Odebrání:** smaž zástupce z plochy a z nabídky Start, složku s bránou a `%LOCALAPPDATA%\Branocesta`
   (tam jsou nainstalované aplikace). Jejich data zůstanou, kde byla, viz níže.
+- **Z gitu:** `git clone https://github.com/JohnyLeeJohnes/branocesta.git` a pak rovnou krok 4. Klonování
+  označení z internetu nepřidává, takže odblokování odpadá.
 
 Potřebuješ Windows 10 nebo 11 (Windows PowerShell 5.1 je jejich součástí) a pro stahování internet.
 Vyzkoušeno na Windows 11.
-
-> **Stahuješ ZIP místo `git clone`?** Windows si soubory stažené z internetu označí a skripty s tímhle
-> označením nemusí spustit. Před rozbalením proto klikni na ZIP pravým tlačítkem a zvol
-> **Vlastnosti → Odblokovat**.
 
 ## Jak to funguje
 
@@ -78,7 +83,7 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
 | `Apps.ps1` | Seznam aplikací, dotaz na nejnovější vydání, stažení a instalace. O okně nic neví. |
 | `Branocesta.cmd`, `install.cmd` | Spuštění bez instalace a vytvoření zástupců. |
 | `tools/make-icon.ps1` | Vygeneruje ikonu do `assets/`. |
-| `tools/make-release.ps1` | Sestaví `dist/Branocesta-<verze>.zip` pro GitHub Release. |
+| `tools/make-release.ps1` | Sestaví `dist/Branocesta.zip` pro GitHub Release. |
 | `tests/test.ps1` | Zkouška instalace vydání a průchod oknem. |
 
 **Další aplikace za bránu:** přidej řádek do `$apps` na začátku `Apps.ps1` (repozitář a skript, kterým se
@@ -108,5 +113,6 @@ powershell -ExecutionPolicy Bypass -File Branocesta.ps1 -AppsPath <složka> -Scr
 **In English:** Bránocesta ("gate-way") is a small launcher for three sibling Windows apps: Spáč (shutdown
 timer), Službák (Prague open-data dashboard) and Měšec (budget tracker). On start it asks GitHub for the
 latest release of each app, installs or updates it into `%LOCALAPPDATA%\Branocesta\apps`, and lets you launch
-one; the gateway then closes. It is a PowerShell script with a WPF window: clone the repo and run
-`install.cmd` to get a desktop shortcut, nothing to compile. The interface is in Czech.
+one; the gateway then closes. It is a PowerShell script with a WPF window: download `Branocesta.zip` from
+the latest release, unblock and extract it, and run `install.cmd` to get a desktop shortcut. Nothing to
+compile. The interface is in Czech.

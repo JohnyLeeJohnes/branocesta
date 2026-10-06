@@ -8,7 +8,7 @@
 param([switch]$Install, [string]$AppsPath, [string]$Source, [string]$Screenshot)
 
 $ErrorActionPreference = 'Stop'
-# Číslo vydání. Bere si ho tools/make-release.ps1.
+# Číslo vydání. Musí sedět s nejnovější verzí v CHANGELOG.md (hlídá tests/test.ps1).
 $version = '1.0.0'
 $icon = Join-Path $PSScriptRoot 'assets\branocesta.ico'
 $library = Join-Path $PSScriptRoot 'Apps.ps1'
