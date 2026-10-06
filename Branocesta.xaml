@@ -406,9 +406,11 @@
         </UniformGrid>
 
         <DockPanel Margin="0,16,0,0">
-            <TextBlock x:Name="VersionText" DockPanel.Dock="Right" FontSize="12" Foreground="{StaticResource Muted}"/>
-            <TextBlock FontSize="12" Foreground="{StaticResource Muted}"
-                       Text="Po spuštění aplikace se brána zavře. Nová vydání si stahuje sama z GitHubu."/>
+            <TextBlock x:Name="VersionText" DockPanel.Dock="Right" FontSize="12" Foreground="{StaticResource Muted}"
+                       Margin="16,0,0,0"/>
+            <!-- Když vyjde nová verze brány, Branocesta.ps1 sem místo nápovědy napíše, co s ní udělala. -->
+            <TextBlock x:Name="FooterText" FontSize="12" Foreground="{StaticResource Muted}" TextWrapping="Wrap"
+                       Text="Po spuštění aplikace se brána zavře. Nová vydání aplikací i sebe samé si stahuje z GitHubu."/>
         </DockPanel>
     </StackPanel>
     </Border>

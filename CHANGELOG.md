@@ -3,6 +3,20 @@
 Všechny podstatné změny v projektu. Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/),
 verze se řídí [sémantickým verzováním](https://semver.org/lang/cs/).
 
+## [Nevydáno]
+
+### Přidáno
+
+- Brána hlídá i své vlastní vydání. Když vyjde novější, přepíše si na pozadí soubory a v zápatí okna to
+  napíše; nová verze se projeví při příštím otevření. V pracovní kopii z gitu se nepřepisuje.
+- Instalace jedním příkazem: `install.ps1` stáhne nejnovější vydání do `%LOCALAPPDATA%\Branocesta`, vytvoří
+  zástupce s ikonou a bránu rovnou otevře.
+
+### Změněno
+
+- Okno si při startu načte vše, co potřebuje, do paměti (včetně ikony), takže mu výměna vlastních souborů
+  za běhu nevadí.
+
 ## [1.0.0] - 2026-10-06
 
 První vydání.

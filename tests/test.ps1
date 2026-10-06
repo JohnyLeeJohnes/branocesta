@@ -43,10 +43,12 @@ function Publish([string]$repository, [string]$tag, $entries) {
 # ---- Soubory ----
 
 # Bez BOM čte PowerShell 5.1 skript jako ANSI a rozbije češtinu.
-foreach ($file in Get-ChildItem $repo, "$repo\tests", "$repo\tools" -Filter *.ps1) {
+foreach ($file in Get-ChildItem $repo, "$repo\tests", "$repo\tools" -Filter *.ps1 | Where-Object { $_.Name -ne 'install.ps1' }) {
     $bytes = [IO.File]::ReadAllBytes($file.FullName)
     Check "$($file.Name) je UTF-8 s BOM" ('{0:X2}{1:X2}{2:X2}' -f $bytes[0], $bytes[1], $bytes[2]) 'EFBBBF'
 }
+# install.ps1 se pouští přes irm | iex a tam BOM vadí; proto v něm nesmí být nic než ASCII.
+Check 'install.ps1 je čisté ASCII bez BOM' (@([IO.File]::ReadAllBytes("$repo\install.ps1") | Where-Object { $_ -gt 127 }).Count) 0
 # cmd.exe čte spolehlivě jen ASCII a konce řádků CRLF.
 foreach ($file in Get-ChildItem $repo -Filter *.cmd) {
     $text = [IO.File]::ReadAllText($file.FullName)
@@ -131,6 +133,29 @@ try { Check 'běžící aplikace se nepřepisuje' (Fails { Install-Release $cont
 finally { $lock.Dispose() }
 Check 'po všech nepovedených pokusech zůstala stará verze' "$(Get-Installed $context $spac) $([IO.File]::ReadAllText("$root\Spac\Spac.ps1")) $(Test-Path "$root\Spac.new")" 'v1.1.0 druhá False'
 
+# ---- Brána sama ----
+
+Check 'novější je jen vyšší číslo verze' ((@('v1.1.0', '1.0.0'), @('v1.0.0', '1.0.0'), @('v0.9.0', '1.0.0'), @('v1.10.0', '1.9.0'), @('nocni', '1.0.0') |
+    ForEach-Object { Test-Newer $_[0] $_[1] }) -join ' ') 'True False False True False'
+
+# Složka, ve které brána jako by běžela: staré soubory a zástupce, který ve vydání není.
+$gatewayHome = Join-Path $temp 'doma'
+$null = New-Item -ItemType Directory -Force "$gatewayHome\assets"
+foreach ($name in 'Branocesta.ps1', 'Apps.ps1', 'Branocesta.xaml', 'assets\branocesta.ico', 'Zastupce.lnk') { [IO.File]::WriteAllText("$gatewayHome\$name", 'staré') }
+function Get-HomeFiles { (Get-ChildItem $gatewayHome -Recurse -File | Sort-Object FullName | ForEach-Object { "$($_.Name)=$([IO.File]::ReadAllText($_.FullName))" }) -join ' ' }
+
+Publish 'branocesta' 'v9.0.0' @{ 'Branocesta/Branocesta.ps1' = 'nové'; 'Branocesta/Branocesta.xaml' = 'nové' }
+Check 'neúplné vydání brány se odmítne' (Fails { Update-Gateway $context (Get-LatestRelease $context $gateway) $gatewayHome }) 'Unexpected: Ve vydání v9.0.0 chybí Apps.ps1.'
+Check 'a na soubory brány nesáhne' (Get-HomeFiles) 'Apps.ps1=staré branocesta.ico=staré Branocesta.ps1=staré Branocesta.xaml=staré Zastupce.lnk=staré'
+
+Publish 'branocesta' 'v9.0.0' @{
+    'Branocesta/Branocesta.ps1' = 'nové'; 'Branocesta/Apps.ps1' = 'nové'; 'Branocesta/Branocesta.xaml' = 'nové'
+    'Branocesta/assets/branocesta.ico' = 'nové'; 'Branocesta/README.md' = 'nové'
+}
+Check 'aktualizace brány vrátí tag vydání' (Update-Gateway $context (Get-LatestRelease $context $gateway) $gatewayHome) 'v9.0.0'
+Check 'přepíše soubory na místě, přidá nové a cizí nechá' (Get-HomeFiles) 'Apps.ps1=nové branocesta.ico=nové Branocesta.ps1=nové Branocesta.xaml=nové README.md=nové Zastupce.lnk=staré'
+Remove-Item "$source\branocesta.json", "$source\branocesta.zip"
+
 # ---- Okno ----
 
 $appRoot = Join-Path $temp 'okno'
@@ -148,7 +173,8 @@ function Card([string]$id) {
 function Red($element) { $element.Foreground -eq $window.FindResource('Danger') }
 
 # Otevře bránu a projde kroky. Další krok přijde na řadu, až brána dokončí, co má rozdělané; po posledním se okno zavře.
-function Open-Gateway([scriptblock[]]$steps) {
+# $from je složka, ze které brána běží: pracovní kopie, nebo její kopie bez gitu (jen ta se smí sama přepsat).
+function Open-Gateway([scriptblock[]]$steps, [string]$from = $repo) {
     $queue = New-Object System.Collections.Queue (, $steps)
     $giveUp = [DateTime]::UtcNow.AddSeconds(60)
     $driver = [Windows.Threading.DispatcherTimer]::new()
@@ -166,7 +192,7 @@ function Open-Gateway([scriptblock[]]$steps) {
         if ($window.IsVisible) { $window.Close() }
     })
     $driver.Start()
-    . (Join-Path $repo 'Branocesta.ps1') -AppsPath $appRoot -Source $source
+    . (Join-Path $from 'Branocesta.ps1') -AppsPath $appRoot -Source $source
 }
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
@@ -208,6 +234,39 @@ Open-Gateway @(
     {
         Check 'aktuální aplikace se znovu neinstaluje' "$(Card 'Spac') | $((Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc -eq $before)" 'verze 1.1.0 | Máš nejnovější vydání. | True | Hidden | True'
         Check 'odložená aktualizace se dožene' (Card 'Sluzbak') 'verze 0.5.0 | Právě aktualizováno. | True | Hidden'
+    }
+)
+
+# ---- Brána aktualizuje sama sebe ----
+# Zkouší se na kopii v dočasné složce: vydání brány je vymyšlené a skutečné soubory by přepsalo nesmyslem.
+
+$copy = Join-Path $temp 'brana'
+$null = New-Item -ItemType Directory -Force "$copy\assets", "$copy\.git"
+foreach ($name in 'Branocesta.ps1', 'Apps.ps1', 'Branocesta.xaml', 'assets\branocesta.ico') { Copy-Item "$repo\$name" "$copy\$name" }
+Publish 'branocesta' 'v99.0.0' @{
+    'Branocesta/Branocesta.ps1' = 'nová brána'; 'Branocesta/Apps.ps1' = 'nové aplikace'
+    'Branocesta/Branocesta.xaml' = 'nové okno'; 'Branocesta/assets/branocesta.ico' = 'nová ikona'
+}
+$hint = 'Po spuštění aplikace se brána zavře. Nová vydání aplikací i sebe samé si stahuje z GitHubu.'
+
+Open-Gateway -from $copy @(
+    {
+        Check 'pracovní kopii z gitu brána nepřepisuje' "$($ui.FooterText.Text) | $([IO.File]::ReadAllText("$copy\Apps.ps1") -eq 'nové aplikace')" "$hint | False"
+    }
+)
+
+Remove-Item "$copy\.git"
+Open-Gateway -from $copy @(
+    {
+        Check 'nainstalovaná brána si stáhne své nové vydání' $ui.FooterText.Text 'Brána se aktualizovala na verzi 99.0.0. Uvidíš ji při příštím otevření.'
+        Check 'a přepíše své soubory, i ikonu, kterou má okno načtenou' (('Branocesta.ps1', 'Apps.ps1', 'Branocesta.xaml', 'assets\branocesta.ico' | ForEach-Object { [IO.File]::ReadAllText("$copy\$_") }) -join ' | ') 'nová brána | nové aplikace | nové okno | nová ikona'
+        Check 'vedle nezbydou rozdělané soubory' (@(Get-ChildItem $copy -Recurse -Filter *.new).Count) 0
+        Click $ui.RefreshButton
+    }
+    {
+        # Na disku je teď z Apps.ps1 nesmysl; okno, které už běží, musí dál pracovat s tím, co načetlo při startu.
+        Check 'běžící okno po aktualizaci brány funguje dál' (Card 'Spac') 'verze 1.1.0 | Máš nejnovější vydání. | True | Hidden'
+        Check 'a podruhé už se brána nepřepisuje' $ui.FooterText.Text 'Brána se aktualizovala na verzi 99.0.0. Uvidíš ji při příštím otevření.'
     }
 )
 

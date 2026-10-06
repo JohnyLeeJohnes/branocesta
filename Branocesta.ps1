@@ -11,7 +11,6 @@ $ErrorActionPreference = 'Stop'
 # Číslo vydání. Musí sedět s nejnovější verzí v CHANGELOG.md (hlídá tests/test.ps1).
 $version = '1.0.0'
 $icon = Join-Path $PSScriptRoot 'assets\branocesta.ico'
-$library = Join-Path $PSScriptRoot 'Apps.ps1'
 
 if ($Install) {
     # Soubory rozbalené ze ZIPu staženého prohlížečem nesou značku "z internetu" a Windows se u nich
@@ -43,7 +42,10 @@ if ($Install) {
 }
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
-. $library
+. (Join-Path $PSScriptRoot 'Apps.ps1')
+# Úlohy na pozadí si Apps.ps1 nenačítají z disku, ale z tohohle textu: běží tak ze stejné verze jako okno,
+# i když si brána mezitím přepíše vlastní soubory novým vydáním.
+$library = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Apps.ps1'))
 
 # Volání Windows API pro tmavý titulek. Když se Add-Type nepovede (třeba kvůli zásadám počítače),
 # brána běží dál, jen má titulek světlý.
@@ -62,6 +64,9 @@ $AppsPath = if ($AppsPath) { Resolve-Target $AppsPath } else { Join-Path $env:LO
 if ($Source) { $Source = Resolve-Target $Source }
 if ($Screenshot) { $Screenshot = Resolve-Target $Screenshot }
 $context = @{ Source = $Source; Root = $AppsPath }
+# Sama sebe brána přepisuje jen tam, kde je nainstalovaná. V pracovní kopii z gitu by jí vydání přepsalo
+# rozdělanou práci.
+$selfUpdates = -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot '.git'))
 
 $state = @{
     # Id aplikace -> @{ Installed; Latest; Phase; Error; Fresh }
@@ -71,6 +76,8 @@ $state = @{
     #   Error      hláška, proč se kontrola nebo instalace nepovedla
     #   Fresh      co se při tomhle spuštění stalo: 'Installed', 'Updated' nebo $null
     Apps = @{}
+    # Vydání brány samotné: Checked = při tomhle otevření se už našlo novější, Note = co o tom říct v zápatí.
+    Gateway = @{ Checked = $false; Note = $null; IsError = $false }
     ShotDue = $null
 }
 
@@ -82,7 +89,7 @@ $worker = {
     param($library, $command, $arguments)
     $ErrorActionPreference = 'Stop'
     try {
-        . $library
+        . ([scriptblock]::Create($library))
         $data = & $command @arguments
         @{ Ok = $true; Data = $data }
     } catch {
@@ -93,16 +100,17 @@ $worker = {
     }
 }.ToString()
 
-$pool = [RunspaceFactory]::CreateRunspacePool(1, 3)
+$pool = [RunspaceFactory]::CreateRunspacePool(1, 4)
 $pool.Open()
 $jobs = New-Object System.Collections.ArrayList
 
-# $done je jméno funkce, která dostane úlohu a její výsledek. Jméno, ne blok: uzávěr by neviděl funkce skriptu.
-function Start-Work([string]$command, $arguments, [string]$done, $app) {
+# $done je jméno funkce, která dostane $tag (čeho se úloha týká) a její výsledek.
+# Jméno, ne blok: uzávěr by neviděl funkce skriptu.
+function Start-Work([string]$command, $arguments, [string]$done, $tag) {
     $shell = [PowerShell]::Create()
     $shell.RunspacePool = $pool
     $null = $shell.AddScript($worker).AddArgument($library).AddArgument($command).AddArgument($arguments)
-    $null = $jobs.Add(@{ Done = $done; App = $app; Shell = $shell; Handle = $shell.BeginInvoke() })
+    $null = $jobs.Add(@{ Done = $done; Tag = $tag; Shell = $shell; Handle = $shell.BeginInvoke() })
 }
 
 function Complete-Work {
@@ -113,7 +121,7 @@ function Complete-Work {
         catch { $result = @{ Ok = $false; Kind = ''; Message = "Úloha na pozadí spadla: $($_.Exception.Message)" } }
         finally { $job.Shell.Dispose() }
         if (-not $result) { $result = @{ Ok = $false; Kind = ''; Message = 'Úloha na pozadí nic nevrátila.' } }
-        & $job.Done $job.App $result
+        & $job.Done $job.Tag $result
     }
 }
 
@@ -159,6 +167,9 @@ function Start-Refresh {
         Update-App $app
         Start-Work 'Get-LatestRelease' @($context, $app) 'Complete-Check' $app
     }
+    if ($selfUpdates -and -not $state.Gateway.Checked) {
+        Start-Work 'Get-LatestRelease' @($context, $gateway) 'Complete-GatewayCheck' $gateway
+    }
 }
 
 function Complete-Check($app, $result) {
@@ -184,6 +195,33 @@ function Complete-Install($app, $result) {
         $entry.Installed = [string]$result.Data
     }
     Update-App $app
+}
+
+# ---- Vydání brány samotné ----
+# Nové vydání brány se nainstaluje na pozadí a projeví se až při příštím otevření: okno, které už běží,
+# se pod rukama nemění. Když se vydání zjistit nepodaří, nic se nehlásí; karty aplikací mají hlášky vlastní.
+
+function Update-Footer {
+    $brush = if ($state.Gateway.IsError) { 'Danger' } elseif ($state.Gateway.Note) { 'Text' } else { 'Muted' }
+    $ui.FooterText.Foreground = $window.FindResource($brush)
+    $ui.FooterText.Text = if ($state.Gateway.Note) { $state.Gateway.Note } else { $footerHint }
+}
+
+function Complete-GatewayCheck($app, $result) {
+    if (-not $result.Ok -or -not (Test-Newer $result.Data.Tag $version)) { return }
+    # Jednou za otevření stačí; další kontrola by přepisovala soubory, které se právě vyměnily.
+    $state.Gateway.Checked = $true
+    $state.Gateway.Note = "Stahuju novou verzi brány $(Format-Tag $result.Data.Tag)…"
+    Update-Footer
+    Start-Work 'Update-Gateway' @($context, $result.Data, $PSScriptRoot) 'Complete-GatewayUpdate' $result.Data
+}
+
+function Complete-GatewayUpdate($release, $result) {
+    $state.Gateway.IsError = -not $result.Ok
+    $state.Gateway.Note =
+        if ($result.Ok) { "Brána se aktualizovala na verzi $(Format-Tag $release.Tag). Uvidíš ji při příštím otevření." }
+        else { "Novou verzi brány $(Format-Tag $release.Tag) se nepodařilo nainstalovat. $($result.Message)" }
+    Update-Footer
 }
 
 # Spustí aplikaci a bránu zavře: dál už je vidět jen ta aplikace.
@@ -221,10 +259,14 @@ function Save-Screenshot([string]$path) {
 
 try {
     $window = [Windows.Markup.XamlReader]::Load([Xml.XmlReader]::Create((Join-Path $PSScriptRoot 'Branocesta.xaml')))
-    if (Test-Path -LiteralPath $icon) { $window.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri]$icon) }
+    if (Test-Path -LiteralPath $icon) {
+        # Ikona se čte z paměti, ne přímo ze souboru: ten zůstane volný a aktualizace brány ho může přepsat.
+        $iconBytes = New-Object System.IO.MemoryStream (, [IO.File]::ReadAllBytes($icon))
+        $window.Icon = [Windows.Media.Imaging.BitmapFrame]::Create($iconBytes, 'None', 'OnLoad')
+    }
 
     $ui = @{}
-    'RefreshButton', 'VersionText' | ForEach-Object { $ui[$_] = $window.FindName($_) }
+    'RefreshButton', 'FooterText', 'VersionText' | ForEach-Object { $ui[$_] = $window.FindName($_) }
     foreach ($app in $apps) {
         'Version', 'Status', 'Busy', 'Launch' | ForEach-Object { $ui["$($app.Id)$_"] = $window.FindName("$($app.Id)$_") }
     }
@@ -272,6 +314,8 @@ try {
     })
 
     $ui.VersionText.Text = "Bránocesta $version"
+    # Co je v zápatí napsané v XAML, platí, dokud není co říct o vydání brány.
+    $footerHint = $ui.FooterText.Text
     foreach ($app in $apps) {
         $state.Apps[$app.Id] = @{ Installed = Get-Installed $context $app; Latest = $null; Phase = 'Idle'; Error = $null; Fresh = $null }
     }
@@ -280,10 +324,10 @@ try {
     $timer.Start()
     $null = $window.ShowDialog()
     $timer.Stop()
-    # Rozdělaná instalace se nechá doběhnout: konec procesu uprostřed výměny složek by aplikaci nechal rozbitou.
-    # Ostatní úlohy jen čtou a na jejich dokončení se nečeká.
+    # Rozdělaná instalace se nechá doběhnout: konec procesu uprostřed výměny souborů by aplikaci nebo bránu
+    # nechal rozbitou. Ostatní úlohy jen čtou a na jejich dokončení se nečeká.
     foreach ($job in $jobs) {
-        if ($job.Done -eq 'Complete-Install') { $null = $job.Handle.AsyncWaitHandle.WaitOne(90000) }
+        if ($job.Done -in 'Complete-Install', 'Complete-GatewayUpdate') { $null = $job.Handle.AsyncWaitHandle.WaitOne(90000) }
         else { $null = $job.Shell.BeginStop($null, $null) }
     }
 }

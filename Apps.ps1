@@ -1,5 +1,7 @@
 ﻿# Apps.ps1: které aplikace Bránocesta zná, jak zjistí jejich nejnovější vydání na GitHubu a jak ho nainstaluje.
 # Žádné okno: funkce běží na pozadí (Branocesta.ps1) i v testech (tests/test.ps1).
+# Úlohy na pozadí si tenhle soubor nenačítají z disku, ale z textu, který si okno přečetlo při startu,
+# takže se tu nedá spoléhat na $PSScriptRoot.
 #
 # $context = @{ Source = $null; Root = '...' }
 # Root je složka, do které se aplikace instalují. Se Source = cesta ke složce se místo GitHubu čtou soubory
@@ -14,6 +16,9 @@ $apps = @(
     @{ Id = 'Sluzbak'; Name = 'Službák'; Repository = 'JohnyLeeJohnes/sluzbak'; Script = 'Sluzbak.ps1' }
     @{ Id = 'Mesec'; Name = 'Měšec'; Repository = 'JohnyLeeJohnes/mesec'; Script = 'Mesec.ps1' }
 )
+
+# Brána sama. Vydání má na GitHubu stejně jako aplikace, jen se instaluje jinak (viz Update-Gateway).
+$gateway = @{ Id = 'Branocesta'; Name = 'Bránocesta'; Repository = 'JohnyLeeJohnes/branocesta'; Script = 'Branocesta.ps1' }
 
 # Soubor ve složce aplikace s tagem vydání, ze kterého je nainstalovaná.
 $releaseFile = '.release'
@@ -164,6 +169,50 @@ function Install-Release($context, $app, $release) {
         foreach ($leftover in $staging, $former) {
             try { if (Test-Path -LiteralPath $leftover) { Remove-Item -LiteralPath $leftover -Recurse -Force } } catch { }
         }
+    }
+    $release.Tag
+}
+
+# ---- Brána sama ----
+
+# Je vydání novější než verze, která právě běží? Tag, který není číslo verze, se za novější nepovažuje.
+function Test-Newer([string]$tag, [string]$version) {
+    $latest = $null
+    $current = $null
+    [version]::TryParse(($tag -replace '^v'), [ref]$latest) -and [version]::TryParse($version, [ref]$current) -and $latest -gt $current
+}
+
+# Přepíše soubory brány ve složce $directory novým vydáním. Vrací nainstalovaný tag.
+# Brána ze své složky běží, takže ji nejde vyměnit celou jako u aplikací. Vydání se proto nejdřív rozbalí
+# stranou a zkontroluje, pak se nové soubory položí vedle starých a teprve nakonec je nahradí.
+function Update-Gateway($context, $release, [string]$directory) {
+    $bytes = if ($context.Source) { Read-Source $context $gateway '.zip' } else { Invoke-Http $release.Url $release.Accept }
+
+    $staging = Join-Path ([IO.Path]::GetTempPath()) "Branocesta-$([Guid]::NewGuid().ToString('N'))"
+    $targets = New-Object System.Collections.ArrayList
+    try {
+        Expand-Release $bytes $staging
+        foreach ($required in $gateway.Script, 'Apps.ps1', 'Branocesta.xaml') {
+            if (-not (Test-Path -LiteralPath (Join-Path $staging $required))) {
+                throw (New-AppError 'Unexpected' "Ve vydání $($release.Tag) chybí $required.")
+            }
+        }
+
+        $base = $staging.TrimEnd('\') + '\'
+        foreach ($file in Get-ChildItem -LiteralPath $staging -Recurse -File) {
+            $target = Join-Path $directory $file.FullName.Substring($base.Length)
+            $null = [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($target))
+            $null = $targets.Add($target)
+            [IO.File]::Copy($file.FullName, "$target.new", $true)
+        }
+        # Sem se dojde, jen když se do složky dá zapisovat a nové soubory jsou celé; výměna už je jen přejmenování.
+        foreach ($target in $targets) {
+            if ([IO.File]::Exists($target)) { [IO.File]::Delete($target) }
+            [IO.File]::Move("$target.new", $target)
+        }
+    } finally {
+        foreach ($target in $targets) { try { [IO.File]::Delete("$target.new") } catch { } }
+        try { if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force } } catch { }
     }
     $release.Tag
 }

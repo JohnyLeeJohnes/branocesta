@@ -19,10 +19,23 @@ Otevřeš bránu, klikneš na **Spustit** a jsi v aplikaci. Brána se přitom za
 - **Instaluje za tebe.** Při prvním spuštění stáhne z GitHubu nejnovější vydání všech tří aplikací.
   Nic neklonuješ, nic nerozbaluješ.
 - **Hlídá nová vydání.** Při každém otevření se podívá, jestli nevyšlo něco novějšího, a rovnou to nainstaluje.
+  Platí to pro všechny tři aplikace i pro bránu samotnou.
 - **Nezdržuje.** Co už je nainstalované, jde spustit hned, i když kontrola ještě běží nebo nejsi na internetu.
 - **Nic se nekompiluje.** Dva skripty v PowerShellu a jedno okno v XAML, stejně jako aplikace za bránou.
 
 ## Instalace
+
+Nejrychleji jedním příkazem. Vlož ho do PowerShellu nebo do okna Spustit (<kbd>Win</kbd>+<kbd>R</kbd>):
+
+```
+powershell -c "irm https://raw.githubusercontent.com/JohnyLeeJohnes/branocesta/master/install.ps1 | iex"
+```
+
+Stáhne nejnovější vydání brány do `%LOCALAPPDATA%\Branocesta`, vytvoří zástupce **Bránocesta** s ikonou
+v nabídce Start a na ploše a rovnou ji otevře. Brána si pak sama stáhne Spáče, Službák a Měšec. Co přesně
+příkaz udělá, si můžeš předem přečíst v [install.ps1](install.ps1).
+
+Chceš bránu mít ve vlastní složce?
 
 1. Stáhni **[Branocesta.zip](https://github.com/JohnyLeeJohnes/branocesta/releases/latest/download/Branocesta.zip)**.
    Odkaz vede vždycky na nejnovější vydání.
@@ -37,13 +50,15 @@ Otevřeš bránu, klikneš na **Spustit** a jsi v aplikaci. Brána se přitom za
 > `install.cmd` ho ze souborů sundá i sám, jenže k tomu ho Windows nejdřív musí nechat spustit.
 
 - **Jen vyzkoušet:** poklepej na `Branocesta.cmd`, spustí bránu bez vytváření zástupců.
-- **Nová verze brány:** stáhni ji stejně a rozbal přes tu starou. Nainstalované aplikace zůstanou, jsou
-  uložené jinde.
+- **Nová verze brány:** nainstaluje se sama, viz níže. Ručně to jde stejným příkazem, nebo rozbalením
+  nového ZIPu přes starý. Nainstalované aplikace zůstanou.
 - **Přesunutí složky:** zástupce ukazuje tam, kde brána leží. Po přesunutí spusť `install.cmd` znovu.
-- **Odebrání:** smaž zástupce z plochy a z nabídky Start, složku s bránou a `%LOCALAPPDATA%\Branocesta`
-  (tam jsou nainstalované aplikace). Jejich data zůstanou, kde byla, viz níže.
+- **Odebrání:** smaž zástupce z plochy a z nabídky Start a složku `%LOCALAPPDATA%\Branocesta`; je v ní brána
+  nainstalovaná příkazem i aplikace, které stáhla. Bránu ve vlastní složce smaž zvlášť. Data aplikací
+  zůstanou, kde byla, viz níže.
 - **Z gitu:** `git clone https://github.com/JohnyLeeJohnes/branocesta.git` a pak rovnou krok 4. Klonování
-  označení z internetu nepřidává, takže odblokování odpadá.
+  označení z internetu nepřidává, takže odblokování odpadá. Naklonovanou bránu aktualizuješ přes `git pull`;
+  sama se nepřepisuje, aby ti nezahodila rozdělané úpravy.
 
 Potřebuješ Windows 10 nebo 11 (Windows PowerShell 5.1 je jejich součástí) a pro stahování internet.
 Vyzkoušeno na Windows 11.
@@ -54,13 +69,15 @@ Vyzkoušeno na Windows 11.
 2. Když ho nemáš, nebo máš starší, stáhne ho a nainstaluje. Bere ZIP přiložený k vydání; když u vydání
    žádný není, archiv zdrojáků, který GitHub dělá ke každému tagu.
 3. **Spustit** pustí aplikaci stejně jako její vlastní zástupce (bez okna konzole) a bránu zavře.
+4. Stejně se brána zeptá i na své vlastní vydání. Když vyšlo novější, přepíše si na pozadí soubory a dole
+   v okně to napíše. Novou verzi uvidíš při příštím otevření; okno, které už běží, se pod rukama nemění.
 
 Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vydání** nebo klávesa F5 se podívá znovu.
 
 ## Dobré vědět
 
-- **Kde aplikace jsou.** V `%LOCALAPPDATA%\Branocesta\apps`, každá ve své složce (`Spac`, `Sluzbak`, `Mesec`).
-  Mimo složku s bránou, takže je aktualizace brány nesmaže.
+- **Kde aplikace jsou.** V `%LOCALAPPDATA%\Branocesta\apps`, každá ve své složce (`Spac`, `Sluzbak`, `Mesec`),
+  ať je brána nainstalovaná kdekoli. Aktualizace brány na ně nesahá.
 - **Tvoje data aktualizace nepřepíše.** Aplikace si je drží jinde: Službák v `%APPDATA%\Sluzbak`, Měšec
   v `%APPDATA%\Mesec`, Spáč v `%LOCALAPPDATA%\Spac`. Brána na ně nesahá.
 - **Běžící aplikaci nepřepisuje.** Když vyjde nová verze něčeho, co máš zrovna otevřené, brána to napíše
@@ -70,7 +87,7 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
 - **Vlastní zástupce aplikacím nedělá.** Pokud máš některou aplikaci nainstalovanou i samostatně, brána
   o ní neví a nijak jí nepřekáží; má svoji kopii.
 - **Bez přihlášení.** Repozitáře aplikací jsou veřejné. GitHub dovolí bez přihlášení 60 dotazů za hodinu
-  z jedné adresy; jedno otevření brány jich potřebuje tři až šest.
+  z jedné adresy; jedno otevření brány jich potřebuje čtyři až osm.
 - **Proč skript, a ne `.exe`.** Nepodepsaný `.exe` umí Windows 11 (Smart App Control) zablokovat. Skript
   běží bez podpisu a před spuštěním si ho můžeš celý přečíst.
 
@@ -80,8 +97,9 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
 | --- | --- |
 | `Branocesta.ps1` | Okno: karty aplikací, úlohy na pozadí, spuštění aplikace, vytvoření zástupců. |
 | `Branocesta.xaml` | Vzhled okna: barvy, styly, karty. |
-| `Apps.ps1` | Seznam aplikací, dotaz na nejnovější vydání, stažení a instalace. O okně nic neví. |
+| `Apps.ps1` | Seznam aplikací, dotaz na nejnovější vydání, stažení a instalace, aktualizace brány. O okně nic neví. |
 | `Branocesta.cmd`, `install.cmd` | Spuštění bez instalace a vytvoření zástupců. |
+| `install.ps1` | Instalace jedním příkazem: stáhne nejnovější vydání do `%LOCALAPPDATA%\Branocesta` a vytvoří zástupce. |
 | `tools/make-icon.ps1` | Vygeneruje ikonu do `assets/`. |
 | `tools/make-release.ps1` | Sestaví `dist/Branocesta.zip` pro GitHub Release. |
 | `tests/test.ps1` | Zkouška instalace vydání a průchod oknem. |
@@ -100,7 +118,7 @@ powershell -ExecutionPolicy Bypass -File tests/test.ps1
 ```
 
 Na GitHub nesahá a tvých nainstalovaných aplikací se nedotkne: vydání má vymyšlená a všechno dělá
-v dočasné složce. Na chvíli přitom dvakrát otevře okno brány.
+v dočasné složce. Několikrát přitom na chvíli otevře okno brány.
 
 Obrázek v `docs/` vzniká takhle (aplikace se kvůli němu nainstalují do složky, kterou zadáš):
 
@@ -113,6 +131,6 @@ powershell -ExecutionPolicy Bypass -File Branocesta.ps1 -AppsPath <složka> -Scr
 **In English:** Bránocesta ("gate-way") is a small launcher for three sibling Windows apps: Spáč (shutdown
 timer), Službák (Prague open-data dashboard) and Měšec (budget tracker). On start it asks GitHub for the
 latest release of each app, installs or updates it into `%LOCALAPPDATA%\Branocesta\apps`, and lets you launch
-one; the gateway then closes. It is a PowerShell script with a WPF window: download `Branocesta.zip` from
-the latest release, unblock and extract it, and run `install.cmd` to get a desktop shortcut. Nothing to
-compile. The interface is in Czech.
+one; the gateway then closes. It keeps itself up to date the same way. It is a PowerShell script with a WPF
+window: run the one-line installer above, or download `Branocesta.zip` from the latest release, unblock and
+extract it, and run `install.cmd` to get a desktop shortcut. Nothing to compile. The interface is in Czech.
