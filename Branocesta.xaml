@@ -1,0 +1,415 @@
+<!-- Okno brány. Načítá ho Branocesta.ps1, takže tu nejsou žádné obsluhy událostí, jen vzhled a jména prvků.
+     Každá aplikace má kartu s prvky <Id>Version, <Id>Status, <Id>Busy a <Id>Launch; Id je z Apps.ps1. -->
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Bránocesta" Width="900" SizeToContent="Height" ResizeMode="CanMinimize"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource Bg}" Foreground="{DynamicResource Text}"
+        FontFamily="Segoe UI" FontSize="13"
+        UseLayoutRounding="True" TextOptions.TextFormattingMode="Display">
+
+    <Window.Resources>
+
+        <!-- Paleta: soumrak + levandulová. Barva Bg se zrcadlí v Branocesta.ps1 (titulkový pruh). -->
+        <SolidColorBrush x:Key="Bg" Color="#12111C"/>
+        <SolidColorBrush x:Key="Surface" Color="#1A1929"/>
+        <SolidColorBrush x:Key="SurfaceHover" Color="#222136"/>
+        <SolidColorBrush x:Key="Stroke" Color="#2B2A42"/>
+        <SolidColorBrush x:Key="StrokeHover" Color="#3E3C5E"/>
+        <SolidColorBrush x:Key="Text" Color="#ECEBF5"/>
+        <SolidColorBrush x:Key="Muted" Color="#8F8DA8"/>
+        <SolidColorBrush x:Key="Accent" Color="#A99BFF"/>
+        <SolidColorBrush x:Key="Danger" Color="#FF8A80"/>
+
+        <!-- Barvy aplikací jsou jejich vlastní: tlačítko Spustit vypadá jako to, co se po něm otevře. -->
+        <SolidColorBrush x:Key="SpacAccent" Color="#F4C95D"/>
+        <SolidColorBrush x:Key="SpacOnAccent" Color="#1B1503"/>
+        <SolidColorBrush x:Key="SluzbakAccent" Color="#E9A45B"/>
+        <SolidColorBrush x:Key="SluzbakOnAccent" Color="#1F1405"/>
+        <SolidColorBrush x:Key="MesecAccent" Color="#5AD1A0"/>
+        <SolidColorBrush x:Key="MesecOnAccent" Color="#06231A"/>
+
+        <!-- Světlá linka kolem dlaždice ikony, ať má hranu i na tmavém pozadí -->
+        <SolidColorBrush x:Key="IconEdge" Color="#24FFFFFF"/>
+
+        <Style x:Key="FocusRing">
+            <Setter Property="Control.Template">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <Border Margin="-3" CornerRadius="13" BorderThickness="2"
+                                BorderBrush="{StaticResource Accent}" Opacity="0.8"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Surface}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource Stroke}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="16"/>
+            <Setter Property="Padding" Value="22,22,22,20"/>
+            <Setter Property="Margin" Value="8,0"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource StrokeHover}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="AppName" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="21"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,18,0,0"/>
+        </Style>
+
+        <!-- Dva řádky i tam, kde stačí jeden, ať jsou karty stejně vysoké -->
+        <Style x:Key="AppTagline" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="LineHeight" Value="19"/>
+            <Setter Property="MinHeight" Value="38"/>
+            <Setter Property="Margin" Value="0,4,0,0"/>
+        </Style>
+
+        <Style x:Key="AppVersion" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,16,0,0"/>
+        </Style>
+
+        <!-- Stav aplikace: hledání vydání, instalace, hotovo nebo chyba (barvu mění Branocesta.ps1) -->
+        <Style x:Key="AppStatus" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="LineHeight" Value="17"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="Margin" Value="0,3,0,0"/>
+        </Style>
+
+        <!-- Tenká linka s běžícím světlem: aplikace se právě kontroluje nebo instaluje. Barva je Foreground. -->
+        <Style x:Key="BusyBar" TargetType="ProgressBar">
+            <Setter Property="Height" Value="2"/>
+            <Setter Property="IsIndeterminate" Value="True"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Visibility" Value="Hidden"/>
+            <Setter Property="Margin" Value="0,10,0,12"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ProgressBar">
+                        <Grid ClipToBounds="True">
+                            <Border Background="{StaticResource Stroke}"/>
+                            <Border x:Name="Light" Width="90" HorizontalAlignment="Left"
+                                    Background="{TemplateBinding Foreground}">
+                                <Border.RenderTransform>
+                                    <TranslateTransform X="-90"/>
+                                </Border.RenderTransform>
+                            </Border>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsVisible" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard x:Name="Run">
+                                        <Storyboard RepeatBehavior="Forever">
+                                            <DoubleAnimation Storyboard.TargetName="Light" From="-90" To="300" Duration="0:0:1.1"
+                                                             Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"/>
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
+                                <Trigger.ExitActions>
+                                    <StopStoryboard BeginStoryboardName="Run"/>
+                                </Trigger.ExitActions>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Tlačítko Spustit: barvy (Background a Foreground) dostává od své aplikace -->
+        <Style x:Key="LaunchButton" TargetType="Button">
+            <Setter Property="Height" Value="44"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="11"/>
+                            <!-- Zesvětlení a ztmavení funguje pro kteroukoli barvu aplikace -->
+                            <Border x:Name="Shade" Background="White" Opacity="0" CornerRadius="11"/>
+                            <ContentPresenter x:Name="Label" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Shade" Property="Opacity" Value="0.18"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Shade" Property="Background" Value="Black"/>
+                                <Setter TargetName="Shade" Property="Opacity" Value="0.14"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource SurfaceHover}"/>
+                                <Setter TargetName="Label" Property="TextElement.Foreground" Value="{StaticResource Muted}"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Nenápadná pilulka pro vedlejší akce -->
+        <Style x:Key="QuietButton" TargetType="Button">
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Padding" Value="14,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="Transparent" BorderBrush="{StaticResource Stroke}"
+                                BorderThickness="1" CornerRadius="15" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource SurfaceHover}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource StrokeHover}"/>
+                                <Setter Property="Foreground" Value="{StaticResource Text}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Surface}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+    </Window.Resources>
+
+    <!-- Okraj je uvnitř prvku s pozadím, ne jako Margin: -Screenshot kreslí obsah okna a okraj by z něj vypadl. -->
+    <Border Background="{StaticResource Bg}" Padding="28,22,28,20">
+    <StackPanel>
+
+        <!-- Záhlaví: brána s cestou jako v ikoně (assets/branocesta.ico) -->
+        <DockPanel>
+            <Button x:Name="RefreshButton" DockPanel.Dock="Right" Style="{StaticResource QuietButton}"
+                    VerticalAlignment="Center" ToolTip="Znovu se podívá po nových vydáních (F5).">
+                <TextBlock>
+                    <Run FontFamily="Segoe MDL2 Assets" FontSize="10" Text="&#xE72C;"/>
+                    <Run Text=" Zkontrolovat vydání"/>
+                </TextBlock>
+            </Button>
+            <Viewbox Width="46" Height="46">
+                <Canvas Width="256" Height="256">
+                    <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60">
+                        <Rectangle.Fill>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#3A3478" Offset="0"/>
+                                <GradientStop Color="#0E0D19" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Rectangle.Fill>
+                    </Rectangle>
+                    <Path Data="M 106,214 L 122,150 H 134 L 150,214 Z">
+                        <Path.Fill>
+                            <LinearGradientBrush MappingMode="Absolute" StartPoint="0,150" EndPoint="0,214">
+                                <GradientStop Color="#40FFE9A6" Offset="0"/>
+                                <GradientStop Color="#FFF4C95D" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Path.Fill>
+                    </Path>
+                    <Path Data="M 56,214 V 120 A 72,72 0 0 1 200,120 V 214 H 168 V 120 A 40,40 0 0 0 88,120 V 214 Z">
+                        <Path.Fill>
+                            <LinearGradientBrush MappingMode="Absolute" StartPoint="56,48" EndPoint="200,214">
+                                <GradientStop Color="#DCD5FF" Offset="0"/>
+                                <GradientStop Color="#8A7AF0" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Path.Fill>
+                    </Path>
+                    <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60"
+                               Stroke="{StaticResource IconEdge}" StrokeThickness="3"/>
+                </Canvas>
+            </Viewbox>
+            <StackPanel Margin="14,0,0,0" VerticalAlignment="Center">
+                <TextBlock FontSize="22" FontWeight="SemiBold" Text="Bránocesta"/>
+                <TextBlock Margin="0,1,0,0" Foreground="{StaticResource Muted}" Text="Tři aplikace za jednou bránou. Vyber si, kam dál."/>
+            </StackPanel>
+        </DockPanel>
+
+        <UniformGrid Rows="1" Margin="-8,22,-8,0">
+
+            <!-- Spáč: srpek měsíce a dvě hvězdy -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <Viewbox Width="72" Height="72" HorizontalAlignment="Left">
+                        <Canvas Width="256" Height="256">
+                            <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60">
+                                <Rectangle.Fill>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                        <GradientStop Color="#2C3968" Offset="0"/>
+                                        <GradientStop Color="#0B0F1E" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <Path>
+                                <Path.Fill>
+                                    <LinearGradientBrush MappingMode="Absolute" StartPoint="44,60" EndPoint="196,212">
+                                        <GradientStop Color="#FFE9A6" Offset="0"/>
+                                        <GradientStop Color="#EFB23E" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Path.Fill>
+                                <Path.Data>
+                                    <CombinedGeometry GeometryCombineMode="Exclude">
+                                        <CombinedGeometry.Geometry1>
+                                            <EllipseGeometry Center="120,136" RadiusX="76" RadiusY="76"/>
+                                        </CombinedGeometry.Geometry1>
+                                        <CombinedGeometry.Geometry2>
+                                            <EllipseGeometry Center="157,105" RadiusX="69" RadiusY="69"/>
+                                        </CombinedGeometry.Geometry2>
+                                    </CombinedGeometry>
+                                </Path.Data>
+                            </Path>
+                            <Path Fill="#FFF3CC" Data="M 170,68 C 173.8,88.2 173.8,88.2 194,92 C 173.8,95.8 173.8,95.8 170,116 C 166.2,95.8 166.2,95.8 146,92 C 166.2,88.2 166.2,88.2 170,68 Z"/>
+                            <Path Fill="#FFF3CC" Data="M 206,128 C 207.9,138.1 207.9,138.1 218,140 C 207.9,141.9 207.9,141.9 206,152 C 204.1,141.9 204.1,141.9 194,140 C 204.1,138.1 204.1,138.1 206,128 Z"/>
+                            <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60"
+                                       Stroke="{StaticResource IconEdge}" StrokeThickness="3"/>
+                        </Canvas>
+                    </Viewbox>
+                    <TextBlock Style="{StaticResource AppName}" Text="Spáč"/>
+                    <TextBlock Style="{StaticResource AppTagline}" Text="Vypne počítač, až usneš."/>
+                    <TextBlock x:Name="SpacVersion" Style="{StaticResource AppVersion}"/>
+                    <TextBlock x:Name="SpacStatus" Style="{StaticResource AppStatus}"/>
+                    <ProgressBar x:Name="SpacBusy" Style="{StaticResource BusyBar}" Foreground="{StaticResource SpacAccent}"
+                                 AutomationProperties.Name="Spáč: pracuju"/>
+                    <Button x:Name="SpacLaunch" Style="{StaticResource LaunchButton}" Content="Spustit" IsEnabled="False"
+                            Background="{StaticResource SpacAccent}" Foreground="{StaticResource SpacOnAccent}"
+                            AutomationProperties.Name="Spustit Spáče"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Službák: oko, které hlídá jedno místo -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <Viewbox Width="72" Height="72" HorizontalAlignment="Left">
+                        <Canvas Width="256" Height="256">
+                            <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60">
+                                <Rectangle.Fill>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                        <GradientStop Color="#262D3D" Offset="0"/>
+                                        <GradientStop Color="#0C0F15" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <Path StrokeThickness="24">
+                                <Path.Stroke>
+                                    <LinearGradientBrush MappingMode="Absolute" StartPoint="40,40" EndPoint="216,216">
+                                        <GradientStop Color="#F8CC98" Offset="0"/>
+                                        <GradientStop Color="#DB8438" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Path.Stroke>
+                                <Path.Data>
+                                    <EllipseGeometry Center="128,128" RadiusX="72" RadiusY="72"/>
+                                </Path.Data>
+                            </Path>
+                            <Path>
+                                <Path.Fill>
+                                    <LinearGradientBrush MappingMode="Absolute" StartPoint="40,40" EndPoint="216,216">
+                                        <GradientStop Color="#F8CC98" Offset="0"/>
+                                        <GradientStop Color="#DB8438" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Path.Fill>
+                                <Path.Data>
+                                    <EllipseGeometry Center="128,128" RadiusX="25" RadiusY="25"/>
+                                </Path.Data>
+                            </Path>
+                            <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60"
+                                       Stroke="{StaticResource IconEdge}" StrokeThickness="3"/>
+                        </Canvas>
+                    </Viewbox>
+                    <TextBlock Style="{StaticResource AppName}" Text="Službák"/>
+                    <TextBlock Style="{StaticResource AppTagline}" Text="Praha kolem tebe: MHD, odpad, ovzduší a parkování."/>
+                    <TextBlock x:Name="SluzbakVersion" Style="{StaticResource AppVersion}"/>
+                    <TextBlock x:Name="SluzbakStatus" Style="{StaticResource AppStatus}"/>
+                    <ProgressBar x:Name="SluzbakBusy" Style="{StaticResource BusyBar}" Foreground="{StaticResource SluzbakAccent}"
+                                 AutomationProperties.Name="Službák: pracuju"/>
+                    <Button x:Name="SluzbakLaunch" Style="{StaticResource LaunchButton}" Content="Spustit" IsEnabled="False"
+                            Background="{StaticResource SluzbakAccent}" Foreground="{StaticResource SluzbakOnAccent}"
+                            AutomationProperties.Name="Spustit Službák"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Měšec: tři rostoucí sloupce a mince -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <Viewbox Width="72" Height="72" HorizontalAlignment="Left">
+                        <Canvas Width="256" Height="256">
+                            <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60">
+                                <Rectangle.Fill>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                        <GradientStop Color="#2A5444" Offset="0"/>
+                                        <GradientStop Color="#0B1410" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <Path Data="M 52,208 V 144 A 10,10 0 0 1 62,134 H 84 A 10,10 0 0 1 94,144 V 208 Z M 108,208 V 106 A 10,10 0 0 1 118,96 H 140 A 10,10 0 0 1 150,106 V 208 Z M 164,208 V 66 A 10,10 0 0 1 174,56 H 196 A 10,10 0 0 1 206,66 V 208 Z">
+                                <Path.Fill>
+                                    <LinearGradientBrush MappingMode="Absolute" StartPoint="0,40" EndPoint="0,208">
+                                        <GradientStop Color="#A4F0D0" Offset="0"/>
+                                        <GradientStop Color="#3FB485" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Path.Fill>
+                            </Path>
+                            <Path>
+                                <Path.Fill>
+                                    <LinearGradientBrush MappingMode="Absolute" StartPoint="44,40" EndPoint="104,100">
+                                        <GradientStop Color="#FFE9A6" Offset="0"/>
+                                        <GradientStop Color="#EFB23E" Offset="1"/>
+                                    </LinearGradientBrush>
+                                </Path.Fill>
+                                <Path.Data>
+                                    <EllipseGeometry Center="73,71" RadiusX="27" RadiusY="27"/>
+                                </Path.Data>
+                            </Path>
+                            <Path Stroke="#C98A1E" StrokeThickness="4">
+                                <Path.Data>
+                                    <EllipseGeometry Center="73,71" RadiusX="16" RadiusY="16"/>
+                                </Path.Data>
+                            </Path>
+                            <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60"
+                                       Stroke="{StaticResource IconEdge}" StrokeThickness="3"/>
+                        </Canvas>
+                    </Viewbox>
+                    <TextBlock Style="{StaticResource AppName}" Text="Měšec"/>
+                    <TextBlock Style="{StaticResource AppTagline}" Text="Měsíční rozpočet pod PINem: výdaje, splatnosti a grafy."/>
+                    <TextBlock x:Name="MesecVersion" Style="{StaticResource AppVersion}"/>
+                    <TextBlock x:Name="MesecStatus" Style="{StaticResource AppStatus}"/>
+                    <ProgressBar x:Name="MesecBusy" Style="{StaticResource BusyBar}" Foreground="{StaticResource MesecAccent}"
+                                 AutomationProperties.Name="Měšec: pracuju"/>
+                    <Button x:Name="MesecLaunch" Style="{StaticResource LaunchButton}" Content="Spustit" IsEnabled="False"
+                            Background="{StaticResource MesecAccent}" Foreground="{StaticResource MesecOnAccent}"
+                            AutomationProperties.Name="Spustit Měšec"/>
+                </StackPanel>
+            </Border>
+
+        </UniformGrid>
+
+        <DockPanel Margin="0,16,0,0">
+            <TextBlock x:Name="VersionText" DockPanel.Dock="Right" FontSize="12" Foreground="{StaticResource Muted}"/>
+            <TextBlock FontSize="12" Foreground="{StaticResource Muted}"
+                       Text="Po spuštění aplikace se brána zavře. Nová vydání si stahuje sama z GitHubu."/>
+        </DockPanel>
+    </StackPanel>
+    </Border>
+</Window>

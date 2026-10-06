@@ -1,0 +1,23 @@
+# Changelog
+
+Všechny podstatné změny v projektu. Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/),
+verze se řídí [sémantickým verzováním](https://semver.org/lang/cs/).
+
+## [Nevydáno]
+
+### Přidáno
+
+- Okno se třemi kartami: Spáč, Službák a Měšec. Tlačítko **Spustit** pustí aplikaci a bránu zavře.
+- Při otevření se brána u každé aplikace zeptá GitHubu na nejnovější vydání a nainstaluje ho, když chybí
+  nebo je novější než to, co už máš. Bere ZIP přiložený k vydání, jinak archiv zdrojáků.
+- Aplikace se instalují do `%LOCALAPPDATA%\Branocesta\apps`. Nové soubory se chystají vedle a složky se
+  vymění až nakonec, takže nepovedená instalace nechá starou verzi být.
+- Aplikace, která právě běží, se nepřepisuje; aktualizace se udělá při dalším otevření brány.
+- Nainstalovanou aplikaci jde spustit hned, i během kontroly nebo bez internetu. Chyba u jedné aplikace
+  ostatní nezastaví.
+- Tlačítko **Zkontrolovat vydání** a klávesa F5.
+- Tmavý vzhled včetně titulkového pruhu okna, ikona ve velikostech 16 až 256 px a `install.cmd`, který
+  vytvoří zástupce v nabídce Start, na ploše a ve složce s bránou.
+- Bránocesta je skript v PowerShellu s oknem ve WPF, takže se nic nekompiluje a nevadí jí Smart App Control.
+- Test `tests/test.ps1`, který zkouší instalaci vymyšlených vydání a projde okno, a `tools/make-release.ps1`,
+  který sestaví ZIP pro GitHub Release.
