@@ -3,6 +3,22 @@
 Všechny podstatné změny v projektu. Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/),
 verze se řídí [sémantickým verzováním](https://semver.org/lang/cs/).
 
+## [1.3.0] - 2026-10-06
+
+### Přidáno
+
+- Tlačítko **Aktualizovat bránu**. Když vyjde novější vydání brány, napíše to v zápatí okna a nabídne ho.
+  Po kliknutí si brána stáhne nové soubory, přepíše jimi své a sama se znovu otevře v nové verzi.
+
+### Změněno
+
+- Brána už sama sebe nepřepisuje potichu na pozadí. O její aktualizaci rozhoduješ ty, stejně jako u aplikací.
+
+### Opraveno
+
+- **Složka aplikací** u nainstalované brány otevírala soubor `Apps.ps1` místo složky. Teď otevře složku
+  v Průzkumníku.
+
 ## [1.2.1] - 2026-10-06
 
 ### Opraveno
@@ -69,6 +85,7 @@ První vydání.
 - Test `tests/test.ps1`, který zkouší instalaci vymyšlených vydání a projde okno, a `tools/make-release.ps1`,
   který sestaví `Branocesta.zip` pro GitHub Release.
 
+[1.3.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.1.0...v1.1.1
