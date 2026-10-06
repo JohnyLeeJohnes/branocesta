@@ -3,6 +3,18 @@
 Všechny podstatné změny v projektu. Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/),
 verze se řídí [sémantickým verzováním](https://semver.org/lang/cs/).
 
+## [1.4.0] - 2026-10-06
+
+### Přidáno
+
+- Cesta zpátky. Aplikace spuštěná z brány má tlačítko **Bránocesta**, které ji zavře a bránu znovu otevře.
+  Brána k tomu aplikaci při spuštění předá, kde leží (proměnná prostředí `BRANOCESTA`). Tlačítko umí Spáč
+  od verze 1.3.0, Službák od 0.5.0 a Měšec od 1.1.0; u starších vydání klikni v bráně na **Aktualizovat**.
+
+### Změněno
+
+- Okno brány se po otevření samo vytáhne navrch, aby nezůstalo schované za jiným oknem.
+
 ## [1.3.0] - 2026-10-06
 
 ### Přidáno
@@ -85,6 +97,7 @@ První vydání.
 - Test `tests/test.ps1`, který zkouší instalaci vymyšlených vydání a projde okno, a `tools/make-release.ps1`,
   který sestaví `Branocesta.zip` pro GitHub Release.
 
+[1.4.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.1.1...v1.2.0

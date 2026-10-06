@@ -15,6 +15,7 @@
 </p>
 
 Otevřeš bránu, klikneš na **Spustit** a jsi v aplikaci. Brána se přitom zavře, dál už vidíš jen to, co sis vybral.
+Tlačítkem **Bránocesta** v aplikaci se do brány zase vrátíš.
 
 - **Vybereš si, co chceš.** Na začátku není nainstalované nic. **Nainstalovat** stáhne z GitHubu nejnovější
   vydání aplikace; nic neklonuješ, nic nerozbaluješ. **Odinstalovat** ji zase odebere a tvoje data nechá být.
@@ -59,8 +60,11 @@ Vyzkoušeno na Windows 11.
 3. Když později vyjde novější vydání, objeví se na kartě **Aktualizovat**. Samo se nic nepřepisuje.
 4. **Spustit** pustí aplikaci stejně jako její vlastní zástupce (bez okna konzole). Brána počká, až se okno
    aplikace ukáže, pošle ho dopředu a zavře se.
-5. **Odinstalovat** smaže složku aplikace. Data, která si aplikace drží jinde, zůstanou.
-6. Stejně se brána zeptá i na své vlastní vydání. Když vyšlo novější, napíše to dole v okně a nabídne
+5. Aplikace spuštěná z brány má tlačítko **Bránocesta**: zavře ji a bránu znovu otevře. Brána jí k tomu při
+   spuštění předá, kde leží (proměnná prostředí `BRANOCESTA`). Když aplikaci pustíš jejím vlastním zástupcem,
+   tlačítko v ní není.
+6. **Odinstalovat** smaže složku aplikace. Data, která si aplikace drží jinde, zůstanou.
+7. Stejně se brána zeptá i na své vlastní vydání. Když vyšlo novější, napíše to dole v okně a nabídne
    **Aktualizovat bránu**. Po kliknutí si stáhne nové soubory, přepíše jimi své a otevře se znovu, už v nové verzi.
 
 Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vydání** nebo klávesa F5 se podívá znovu.
@@ -72,6 +76,8 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
   Aktualizace brány na ni nesahá.
 - **Tvoje data aktualizace ani odinstalování nesmaže.** Aplikace si je drží jinde: Službák v `%APPDATA%\Sluzbak`,
   Měšec v `%APPDATA%\Mesec`, Spáč v `%LOCALAPPDATA%\Spac`. Brána na ně nesahá.
+- **Po zavření nic neběží.** Brána i aplikace jsou každá jedno okno a s ním skončí. Na pozadí nezůstává nic,
+  co by hlídalo vydání nebo čekalo na spuštění.
 - **Běžící aplikaci nepřepisuje ani nemaže.** Když chceš aktualizovat nebo odinstalovat něco, co máš zrovna
   otevřené, brána ti napíše, ať to nejdřív zavřeš.
 - **Nepovedená instalace nic nerozbije.** Nové soubory se chystají vedle a složky se vymění až nakonec.
@@ -126,6 +132,6 @@ powershell -ExecutionPolicy Bypass -File Branocesta.ps1 -AppsPath <složka> -Scr
 timer), Službák (Prague open-data dashboard) and Měšec (budget tracker). On start it asks GitHub for the
 latest release of each app. Nothing is installed by default: each card lets you install, update, uninstall
 or launch its app, and everything is installed into one folder, `%LOCALAPPDATA%\Branocesta\apps`. Launching
-an app closes the gateway. The gateway offers to update itself the same way. It is a PowerShell script with a WPF
+an app closes the gateway, and a button in each app brings it back. The gateway offers to update itself the same way. It is a PowerShell script with a WPF
 window: download `Branocesta.zip` from the latest release, unblock and extract it, and run `install.cmd` to
 get a desktop shortcut. Nothing to compile. The interface is in Czech.
