@@ -3,6 +3,22 @@
 Všechny podstatné změny v projektu. Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/),
 verze se řídí [sémantickým verzováním](https://semver.org/lang/cs/).
 
+## [1.2.0] - 2026-10-06
+
+### Přidáno
+
+- Na kartě každé aplikace jsou tlačítka **Nainstalovat**, **Aktualizovat** a **Odinstalovat**. Odinstalování
+  smaže jen složku aplikace; data, která si aplikace drží jinde, zůstanou.
+- Tlačítko **Složka aplikací** otevře jedinou společnou složku, do které se všechny aplikace instalují
+  (`%LOCALAPPDATA%\Branocesta\apps`).
+- Karta ukáže, která verze je ke stažení a že vyšla novější. Ikona nenainstalované aplikace je ztlumená.
+
+### Změněno
+
+- Brána už aplikace neinstaluje ani neaktualizuje sama. Na začátku není nainstalované nic a o každé aplikaci
+  rozhoduješ ty. Co už nainstalované máš, zůstává. Sama sebe brána aktualizuje dál.
+- Když aplikace běží, brána ji nepřepíše ani nesmaže a napíše, ať ji nejdřív zavřeš.
+
 ## [1.1.1] - 2026-10-06
 
 ### Odebráno
@@ -45,6 +61,7 @@ První vydání.
 - Test `tests/test.ps1`, který zkouší instalaci vymyšlených vydání a projde okno, a `tools/make-release.ps1`,
   který sestaví `Branocesta.zip` pro GitHub Release.
 
+[1.2.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/JohnyLeeJohnes/branocesta/releases/tag/v1.0.0
