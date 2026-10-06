@@ -57,7 +57,8 @@ Vyzkoušeno na Windows 11.
 2. **Nainstalovat** ho stáhne a rozbalí do společné složky. Bere ZIP přiložený k vydání; když u vydání
    žádný není, archiv zdrojáků, který GitHub dělá ke každému tagu.
 3. Když později vyjde novější vydání, objeví se na kartě **Aktualizovat**. Samo se nic nepřepisuje.
-4. **Spustit** pustí aplikaci stejně jako její vlastní zástupce (bez okna konzole) a bránu zavře.
+4. **Spustit** pustí aplikaci stejně jako její vlastní zástupce (bez okna konzole). Brána počká, až se okno
+   aplikace ukáže, pošle ho dopředu a zavře se.
 5. **Odinstalovat** smaže složku aplikace. Data, která si aplikace drží jinde, zůstanou.
 6. Stejně se brána zeptá i na své vlastní vydání. Když vyšlo novější, přepíše si na pozadí soubory a dole
    v okně to napíše. Novou verzi uvidíš při příštím otevření; okno, které už běží, se pod rukama nemění.

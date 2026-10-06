@@ -42,7 +42,8 @@ if ($Install) {
     return
 }
 
-Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+# Microsoft.VisualBasic je tu kvůli AppActivate: pošle okno jiného procesu dopředu (viz Complete-Launch).
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Microsoft.VisualBasic
 . (Join-Path $PSScriptRoot 'Apps.ps1')
 # Úlohy na pozadí si Apps.ps1 nenačítají z disku, ale z tohohle textu: běží tak ze stejné verze jako okno,
 # i když si brána mezitím přepíše vlastní soubory novým vydáním.
@@ -74,12 +75,14 @@ $state = @{
     # Id aplikace -> @{ Installed; Latest; Phase; Error; Fresh }
     #   Installed  tag nainstalovaného vydání, '' = nainstalovaná není
     #   Latest     nejnovější vydání z Get-LatestRelease, $null = ještě ho neznáme
-    #   Phase      'Checking' (hledá se vydání), 'Installing', 'Removing' nebo 'Idle'
-    #   Error      hláška, proč se poslední kontrola, instalace nebo odinstalování nepovedly
+    #   Phase      'Checking' (hledá se vydání), 'Installing', 'Removing', 'Launching' nebo 'Idle'
+    #   Error      hláška, proč se poslední kontrola, instalace, odinstalování nebo spuštění nepovedly
     #   Fresh      co se s aplikací stalo od poslední kontroly: 'Installed', 'Updated', 'Removed' nebo $null
     Apps = @{}
     # Vydání brány samotné: Checked = při tomhle otevření se už našlo novější, Note = co o tom říct v zápatí.
     Gateway = @{ Checked = $false; Note = $null; IsError = $false }
+    # Aplikace, na jejíž okno brána čeká: @{ App; Process; Since; GiveUp }, jinak $null (viz Start-App).
+    Launch = $null
     ShotDue = $null
 }
 
@@ -151,7 +154,7 @@ function Update-App($app) {
     $ui["${id}Update"].Visibility = if ($outdated) { 'Visible' } else { 'Hidden' }
     $ui["${id}Remove"].Visibility = if ($installed) { 'Visible' } else { 'Hidden' }
     # Co je nainstalované, jde spustit i bez internetu a během kontroly; jen ne ve chvíli, kdy se mění soubory.
-    $ui["${id}Launch"].IsEnabled = $installed -and $entry.Phase -notin 'Installing', 'Removing'
+    $ui["${id}Launch"].IsEnabled = $installed -and $entry.Phase -notin 'Installing', 'Removing', 'Launching'
     # Nainstalovat jde jen vydání, o kterém brána ví.
     $ui["${id}Install"].IsEnabled = -not $busy -and [bool]$entry.Latest
     $ui["${id}Update"].IsEnabled = -not $busy
@@ -164,6 +167,7 @@ function Update-App($app) {
             $(if ($installed) { 'Aktualizuju na ' } else { 'Instaluju ' }) + (Format-Tag $entry.Latest.Tag) + '…'
         }
         elseif ($entry.Phase -eq 'Removing') { 'Odinstalovávám…' }
+        elseif ($entry.Phase -eq 'Launching') { 'Spouštím…' }
         elseif ($entry.Error) { $entry.Error }
         elseif ($entry.Fresh -eq 'Installed') { 'Právě nainstalováno.' }
         elseif ($entry.Fresh -eq 'Updated') { 'Právě aktualizováno.' }
@@ -180,7 +184,7 @@ function Update-App($app) {
 
 function Start-Refresh {
     # Dokud něco běží, další kontrola nezačne: přepsala by stav karty, na které se zrovna pracuje.
-    if ($jobs.Count) { return }
+    if ($jobs.Count -or $state.Launch) { return }
     foreach ($app in $apps) {
         $entry = $state.Apps[$app.Id]
         $entry.Phase = 'Checking'
@@ -271,19 +275,67 @@ function Complete-GatewayUpdate($release, $result) {
     Update-Footer
 }
 
-# Spustí aplikaci a bránu zavře: dál už je vidět jen ta aplikace.
+# ---- Spuštění aplikace ----
+# Brána aplikaci pustí, počká, až ukáže své okno, pošle ho dopředu a teprve pak se zavře. Kdyby se zavřela
+# hned, Windows by mezitím aktivovaly jiné okno a aplikace by se otevřela schovaná za ním: vypadalo by to,
+# že se nestalo nic.
+
 function Start-App($app) {
+    $entry = $state.Apps[$app.Id]
+    if ($state.Launch -or -not $entry.Installed) { return }
     $directory = Get-AppDirectory $context $app
+    $since = Get-Date
     try {
         # conhost --headless spustí PowerShell bez okna konzole, stejně jako zástupci samotných aplikací.
-        Start-Process -FilePath "$env:SystemRoot\System32\conhost.exe" -WorkingDirectory $directory `
+        $process = Start-Process -FilePath "$env:SystemRoot\System32\conhost.exe" -WorkingDirectory $directory -PassThru `
             -ArgumentList "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $directory $app.Script)`""
     } catch {
-        $state.Apps[$app.Id].Error = "Spuštění se nepovedlo: $($_.Exception.Message)"
+        $entry.Error = "Spuštění se nepovedlo: $($_.Exception.Message)"
         Update-App $app
         return
     }
-    $window.Close()
+    $state.Launch = @{ App = $app; Process = $process; Since = $since; GiveUp = [DateTime]::UtcNow.AddSeconds(30) }
+    $entry.Phase = 'Launching'
+    $entry.Error = $null
+    Update-App $app
+}
+
+# Id procesu PowerShellu, který vznikl po $since a už má okno; $null, dokud žádný takový není.
+function Find-AppProcess([datetime]$since) {
+    foreach ($process in [Diagnostics.Process]::GetProcessesByName('powershell')) {
+        try {
+            if ($process.Id -ne $PID -and $process.StartTime -ge $since -and $process.MainWindowHandle -ne [IntPtr]::Zero) { return $process.Id }
+        }
+        catch { }   # Proces mezitím skončil nebo k němu není přístup.
+        finally { $process.Dispose() }
+    }
+}
+
+# Volá se z časovače, dokud brána čeká na okno spuštěné aplikace.
+function Complete-Launch {
+    $launch = $state.Launch
+    if (-not $launch) { return }
+
+    $id = Find-AppProcess $launch.Since
+    if ($id) {
+        $state.Launch = $null
+        # Brána je teď v popředí, takže smí dopředu poslat i cizí okno. Když to nevyjde, okno aplikace
+        # zůstane tam, kde je.
+        try { [Microsoft.VisualBasic.Interaction]::AppActivate($id) } catch { }
+        $window.Close()
+        return
+    }
+
+    $name = $launch.App.Name
+    # conhost žije, dokud běží PowerShell, který hostí; když skončil, skončila i aplikace.
+    $problem = if ($launch.Process.HasExited) { "$name skončil hned po spuštění." }
+        elseif ([DateTime]::UtcNow -gt $launch.GiveUp) { "$name se zatím neukázal. Jestli se neotevře, zkus to znovu." }
+    if (-not $problem) { return }
+    $state.Launch = $null
+    $entry = $state.Apps[$launch.App.Id]
+    $entry.Phase = 'Idle'
+    $entry.Error = $problem
+    Update-App $launch.App
 }
 
 # ---- Obrázek okna ----
@@ -359,7 +411,8 @@ try {
     $timer.Interval = [TimeSpan]::FromMilliseconds(100)
     $timer.Add_Tick({
         Complete-Work
-        $ui.RefreshButton.IsEnabled = -not $jobs.Count
+        Complete-Launch
+        $ui.RefreshButton.IsEnabled = -not ($jobs.Count -or $state.Launch)
 
         if ($Screenshot -and -not $jobs.Count) {
             # Po poslední úloze ještě chvilka na vykreslení.

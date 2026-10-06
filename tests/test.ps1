@@ -169,8 +169,20 @@ Remove-Item "$source\branocesta.json", "$source\branocesta.zip"
 
 $appRoot = Join-Path $temp 'okno'
 $marker = Join-Path $temp 'spusteno.txt'
-# Vymyšlený Spáč zapíše, ve které složce ho brána pustila.
-Publish 'spac' 'v1.0.0' @{ 'Spac/Spac.ps1' = "[IO.File]::WriteAllText('$marker', (Get-Location).Path)" }
+# Vymyšlený Spáč zapíše, ve které složce ho brána pustila, a na chvíli ukáže okno: na to brána čeká, než se zavře.
+# (Jen ASCII: skript v ZIPu nemá BOM.)
+$fakeSpac = @"
+[IO.File]::WriteAllText('$marker', (Get-Location).Path)
+Add-Type -AssemblyName PresentationFramework, WindowsBase
+`$window = New-Object Windows.Window
+`$window.Title = 'Zkusebni Spac'; `$window.Width = 260; `$window.Height = 120
+`$timer = New-Object Windows.Threading.DispatcherTimer
+`$timer.Interval = [TimeSpan]::FromSeconds(3)
+`$timer.Add_Tick({ `$window.Close() })
+`$timer.Start()
+`$null = `$window.ShowDialog()
+"@
+Publish 'spac' 'v1.0.0' @{ 'Spac/Spac.ps1' = $fakeSpac }
 Publish 'sluzbak' 'v0.4.0' @{ 'Sluzbak/Sluzbak.ps1' = "'nic'" }
 Publish 'mesec' 'v1.0.0' @{ 'Mesec/Mesec.ps1' = "'nic'" }
 
@@ -190,6 +202,8 @@ function Red($element) { $element.Foreground -eq $window.FindResource('Danger') 
 function Open-Gateway([scriptblock[]]$steps, [string]$from = $repo) {
     $queue = New-Object System.Collections.Queue (, $steps)
     $giveUp = [DateTime]::UtcNow.AddSeconds(60)
+    # Zavřel okno test, nebo se brána zavřela sama? Sama se zavírá jen po spuštění aplikace.
+    $script:closedByTest = $false
     $driver = [Windows.Threading.DispatcherTimer]::new()
     $driver.Interval = [TimeSpan]::FromMilliseconds(100)
     $driver.Add_Tick({
@@ -197,15 +211,15 @@ function Open-Gateway([scriptblock[]]$steps, [string]$from = $repo) {
         try {
             # Okno visí nebo úlohy nedoběhly; bez tohohle by test nikdy neskončil.
             if ([DateTime]::UtcNow -gt $giveUp) { throw 'brána do minuty nedokončila, co měla rozdělané' }
-            if ($jobs.Count) { return }
-            & $queue.Dequeue()
-            if ($queue.Count) { return }
+            if ($jobs.Count -or $state.Launch) { return }
+            if ($queue.Count) { & $queue.Dequeue(); return }
         } catch { $script:fail++; Note "FAIL  průchod oknem spadl na řádku $($_.InvocationInfo.ScriptLineNumber): $_" }
         $driver.Stop()
-        if ($window.IsVisible) { $window.Close() }
+        if ($window.IsVisible) { $script:closedByTest = $true; $window.Close() }
     })
     $driver.Start()
     . (Join-Path $from 'Branocesta.ps1') -AppsPath $appRoot -Source $source
+    $driver.Stop()
 }
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
@@ -230,7 +244,7 @@ Open-Gateway @(
         Check 'ikona nainstalované aplikace svítí naplno' $ui.SpacIcon.Opacity 1
 
         # Spáč a Službák vydaly novou verzi a vydání Měšce se nedá přečíst.
-        Publish 'spac' 'v1.1.0' @{ 'Spac/Spac.ps1' = "[IO.File]::WriteAllText('$marker', (Get-Location).Path)" }
+        Publish 'spac' 'v1.1.0' @{ 'Spac/Spac.ps1' = $fakeSpac }
         Publish 'sluzbak' 'v0.5.0' @{ 'Sluzbak/Sluzbak.ps1' = "'nic'" }
         Remove-Item "$source\mesec.json"
         $script:before = (Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc
@@ -265,12 +279,11 @@ Open-Gateway @(
         Check 'ze společné složky zmizí jen ona' "$(Test-Path "$appRoot\Sluzbak") $(Test-Path "$appRoot\Sluzbak.old") $(Test-Path "$appRoot\Spac\Spac.ps1")" 'False False True'
 
         Click $ui.SpacLaunch
-        Check 'spuštění aplikace bránu zavře' $window.IsVisible $false
+        Check 'po kliknutí na Spustit brána čeká na okno aplikace' "$(Card 'Spac') | $($window.IsVisible)" 'verze 1.1.0 | Spouštím… | (Launch) (Remove) | Visible | True'
     }
 )
 
-# Spáč startuje v jiném procesu; chvilku mu to trvá.
-for ($i = 0; $i -lt 150 -and -not (Test-Path $marker); $i++) { Start-Sleep -Milliseconds 100 }
+Check 'a zavře se sama, jakmile aplikace okno ukáže' $script:closedByTest $false
 Check 'brána pustila Spáče a v jeho složce' $(if (Test-Path $marker) { [IO.File]::ReadAllText($marker) } else { 'nespustil se' }) "$appRoot\Spac"
 
 # Podruhé brána ukáže, co je na disku, a nic nemění: co je odinstalované, se samo nevrátí.
@@ -282,6 +295,14 @@ Open-Gateway @(
         # Tentokrát brána vydání Měšce nezná vůbec.
         Click $ui.MesecInstall
         Check 'bez známého vydání instalovat nejde' "$(Card 'Mesec') | $($jobs.Count)" 'není nainstalováno | Ve složce s vydáními chybí mesec.json. | (Install) | Hidden | 0'
+        Click $ui.SluzbakInstall
+    }
+    {
+        # Vymyšlený Službák žádné okno neukáže a hned skončí.
+        Click $ui.SluzbakLaunch
+    }
+    {
+        Check 'aplikace, která hned skončí, bránu nezavře' "$(Card 'Sluzbak') | $(Red $ui.SluzbakStatus) | $($window.IsVisible)" 'verze 0.5.0 | Službák skončil hned po spuštění. | Launch Remove | Hidden | True | True'
     }
 )
 
@@ -319,6 +340,10 @@ Open-Gateway -from $copy @(
 )
 
 $script:lines
-Remove-Item -Recurse -Force $temp
+# Vymyšlený Spáč zavře své okno až za chvíli a do té doby drží svou složku.
+for ($i = 0; $i -lt 100 -and (Test-Path $temp); $i++) {
+    Remove-Item -Recurse -Force $temp -ErrorAction SilentlyContinue
+    if (Test-Path $temp) { Start-Sleep -Milliseconds 100 }
+}
 if ($script:fail) { "`n$($script:fail) chyb" } else { "`nVšechno prošlo." }
 exit $script:fail
