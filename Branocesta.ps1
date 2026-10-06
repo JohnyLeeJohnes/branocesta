@@ -73,6 +73,9 @@ $context = @{ Source = $Source; Root = $AppsPath }
 # Sama sebe brána aktualizuje jen tam, kde je nainstalovaná. V pracovní kopii z gitu by jí vydání přepsalo
 # rozdělanou práci.
 $selfUpdates = -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot '.git'))
+# Podle tohohle aplikace poznají, že je pustila brána, a kam se mají vrátit: jejich tlačítko zpět otevře
+# tenhle skript. Proměnnou zdědí každý proces, který brána pustí.
+$env:BRANOCESTA = $PSCommandPath
 
 $state = @{
     # Id aplikace -> @{ Installed; Latest; Phase; Error; Fresh }
@@ -423,6 +426,14 @@ try {
             $value = $attribute[1]
             $null = $native::DwmSetWindowAttribute($hwnd, $attribute[0], [ref]$value, 4)
         }
+    })
+
+    # Když bránu otevře aplikace, která se hned nato zavře, Windows mezitím aktivují jiné okno a brána by
+    # zůstala schovaná za ním. Tohle ji vytáhne navrch, aniž by tam zůstala natrvalo.
+    $window.Add_ContentRendered({
+        $window.Topmost = $true
+        $window.Topmost = $false
+        $null = $window.Activate()
     })
 
     foreach ($app in $apps) {

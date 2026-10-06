@@ -169,7 +169,8 @@ Remove-Item "$source\branocesta.json", "$source\branocesta.zip"
 
 $appRoot = Join-Path $temp 'okno'
 $marker = Join-Path $temp 'spusteno.txt'
-# Vymyšlený Spáč zapíše, ve které složce ho brána pustila, a na chvíli ukáže okno: na to brána čeká, než se zavře.
+# Vymyšlený Spáč zapíše, ve které složce ho brána pustila a kam se má vrátit, a na chvíli ukáže okno: na to
+# brána čeká, než se zavře.
 # (Jen ASCII: skript v ZIPu nemá BOM.)
 $fakeWindow = @'
 Add-Type -AssemblyName PresentationFramework, WindowsBase
@@ -181,7 +182,7 @@ $timer.Add_Tick({ $window.Close() })
 $timer.Start()
 $null = $window.ShowDialog()
 '@
-$fakeSpac = "[IO.File]::WriteAllText('$marker', (Get-Location).Path)`n$fakeWindow"
+$fakeSpac = "[IO.File]::WriteAllText('$marker', (Get-Location).Path + '|' + `$env:BRANOCESTA)`n$fakeWindow"
 Publish 'spac' 'v1.0.0' @{ 'Spac/Spac.ps1' = $fakeSpac }
 Publish 'sluzbak' 'v0.4.0' @{ 'Sluzbak/Sluzbak.ps1' = "'nic'" }
 Publish 'mesec' 'v1.0.0' @{ 'Mesec/Mesec.ps1' = "'nic'" }
@@ -284,7 +285,7 @@ Open-Gateway @(
 )
 
 Check 'a zavře se sama, jakmile aplikace okno ukáže' $script:closedByTest $false
-Check 'brána pustila Spáče a v jeho složce' $(if (Test-Path $marker) { [IO.File]::ReadAllText($marker) } else { 'nespustil se' }) "$appRoot\Spac"
+Check 'brána pustila Spáče v jeho složce a řekla mu, kam se vrátit' $(if (Test-Path $marker) { [IO.File]::ReadAllText($marker) } else { 'nespustil se' }) "$appRoot\Spac|$repo\Branocesta.ps1"
 
 # Podruhé brána ukáže, co je na disku, a nic nemění: co je odinstalované, se samo nevrátí.
 $before = (Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc
