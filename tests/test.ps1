@@ -1,4 +1,4 @@
-﻿# Zkouška Bránocesty: nejdřív instalace vydání (Apps.ps1), pak průchod oknem.
+﻿# Zkouška Bránocesty: nejdřív instalace a odinstalování vydání (Apps.ps1), pak průchod oknem.
 #   powershell -ExecutionPolicy Bypass -File tests/test.ps1
 #
 # Na GitHub test nesahá: vydání jsou vymyšlená v dočasné složce (-Source) a instalují se tamtéž (-AppsPath).
@@ -127,9 +127,20 @@ Check 'chybějící soubor vydání' (Fails { Install-Release $context $spac (Ge
 # Běžící aplikace drží svou složku; tady ji zastoupí otevřený soubor.
 Publish 'spac' 'v1.2.0' @{ 'Spac/Spac.ps1' = 'třetí' }
 $lock = [IO.File]::Open("$root\Spac\Spac.ps1", 'Open', 'Read', 'None')
-try { Check 'běžící aplikace se nepřepisuje' (Fails { Install-Release $context $spac (Get-LatestRelease $context $spac) }) 'Busy: Spáč právě běží, novou verzi nainstaluju, až ho zavřeš.' }
-finally { $lock.Dispose() }
-Check 'po všech nepovedených pokusech zůstala stará verze' "$(Get-Installed $context $spac) $([IO.File]::ReadAllText("$root\Spac\Spac.ps1")) $(Test-Path "$root\Spac.new")" 'v1.1.0 druhá False'
+try {
+    Check 'běžící aplikace se nepřepisuje' (Fails { Install-Release $context $spac (Get-LatestRelease $context $spac) }) 'Busy: Spáč právě běží. Zavři ho a zkus to znovu.'
+    Check 'běžící aplikace se neodinstaluje' (Fails { Uninstall-App $context $spac }) 'Busy: Spáč právě běží. Zavři ho a zkus to znovu.'
+} finally { $lock.Dispose() }
+Check 'po všech nepovedených pokusech zůstala stará verze' "$(Get-Installed $context $spac) $([IO.File]::ReadAllText("$root\Spac\Spac.ps1")) $(Test-Path "$root\Spac.new") $(Test-Path "$root\Spac.old")" 'v1.1.0 druhá False False'
+
+# ---- Odinstalování ----
+
+Uninstall-App $context $spac
+Check 'odinstalování smaže složku aplikace' "$(Test-Path "$root\Spac") $(Test-Path "$root\Spac.old") '$(Get-Installed $context $spac)'" "False False ''"
+Check 'ostatní aplikace ve společné složce zůstanou' (Get-Installed $context $mesec) 'v1.0.0'
+Check 'odinstalovat nenainstalované nic neudělá' (Fails { Uninstall-App $context $spac }) 'bez chyby'
+$null = Install-Release $context $spac (Get-LatestRelease $context $spac)
+Check 'po odinstalování jde nainstalovat znovu' (Get-Installed $context $spac) 'v1.2.0'
 
 # ---- Brána sama ----
 
@@ -164,9 +175,13 @@ Publish 'sluzbak' 'v0.4.0' @{ 'Sluzbak/Sluzbak.ps1' = "'nic'" }
 Publish 'mesec' 'v1.0.0' @{ 'Mesec/Mesec.ps1' = "'nic'" }
 
 function Click($button) { $button.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
-# Co je na kartě aplikace vidět: verze | stav | jde spustit | běží linka
+# Co je na kartě aplikace vidět: verze | stav | tlačítka (vypnutá v závorce) | běží linka
 function Card([string]$id) {
-    "$($ui["${id}Version"].Text) | $($ui["${id}Status"].Text) | $($ui["${id}Launch"].IsEnabled) | $($ui["${id}Busy"].Visibility)"
+    $buttons = foreach ($name in 'Install', 'Launch', 'Update', 'Remove') {
+        $button = $ui["$id$name"]
+        if ($button.Visibility -eq 'Visible') { if ($button.IsEnabled) { $name } else { "($name)" } }
+    }
+    "$($ui["${id}Version"].Text) | $($ui["${id}Status"].Text) | $buttons | $($ui["${id}Busy"].Visibility)"
 }
 function Red($element) { $element.Foreground -eq $window.FindResource('Danger') }
 
@@ -196,26 +211,58 @@ function Open-Gateway([scriptblock[]]$steps, [string]$from = $repo) {
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 Open-Gateway @(
     {
-        Check 'první spuštění nainstaluje Spáče' (Card 'Spac') 'verze 1.0.0 | Právě nainstalováno. | True | Hidden'
-        Check 'první spuštění nainstaluje Službák' (Card 'Sluzbak') 'verze 0.4.0 | Právě nainstalováno. | True | Hidden'
-        Check 'první spuštění nainstaluje Měšec' (Card 'Mesec') 'verze 1.0.0 | Právě nainstalováno. | True | Hidden'
-        Check 'soubory jsou ve složce z -AppsPath' "$(Test-Path "$appRoot\Spac\Spac.ps1") $(Test-Path "$appRoot\Sluzbak\Sluzbak.ps1") $(Test-Path "$appRoot\Mesec\Mesec.ps1")" 'True True True'
+        Check 'napoprvé není nainstalovaný Spáč' (Card 'Spac') 'není nainstalováno | Ke stažení je verze 1.0.0. | Install | Hidden'
+        Check 'ani Službák' (Card 'Sluzbak') 'není nainstalováno | Ke stažení je verze 0.4.0. | Install | Hidden'
+        Check 'ani Měšec' (Card 'Mesec') 'není nainstalováno | Ke stažení je verze 1.0.0. | Install | Hidden'
+        Check 'a sama brána nic nestáhne' (Test-Path $appRoot) $false
+        Check 'ikona nenainstalované aplikace je ztlumená' ($ui.SpacIcon.Opacity -lt 1) $true
         Check 'dole je verze brány' ($ui.VersionText.Text -match '^Bránocesta \d+\.\d+\.\d+$') $true
 
-        # Spáč vydal novou verzi, vydání Měšce se nedá přečíst a Službák s novou verzí zrovna běží.
+        Click $ui.SpacInstall
+        Click $ui.SluzbakInstall
+        Check 'instalace je na kartě vidět' (Card 'Spac') 'není nainstalováno | Instaluju 1.0.0… | (Install) | Visible'
+    }
+    {
+        Check 'Nainstalovat nainstaluje Spáče' (Card 'Spac') 'verze 1.0.0 | Právě nainstalováno. | Launch Remove | Hidden'
+        Check 'a Službák' (Card 'Sluzbak') 'verze 0.4.0 | Právě nainstalováno. | Launch Remove | Hidden'
+        Check 'na co se nekliklo, nainstalované není' (Card 'Mesec') 'není nainstalováno | Ke stažení je verze 1.0.0. | Install | Hidden'
+        Check 'soubory jsou v jedné složce z -AppsPath' "$(Test-Path "$appRoot\Spac\Spac.ps1") $(Test-Path "$appRoot\Sluzbak\Sluzbak.ps1") $(Test-Path "$appRoot\Mesec")" 'True True False'
+        Check 'ikona nainstalované aplikace svítí naplno' $ui.SpacIcon.Opacity 1
+
+        # Spáč a Službák vydaly novou verzi a vydání Měšce se nedá přečíst.
         Publish 'spac' 'v1.1.0' @{ 'Spac/Spac.ps1' = "[IO.File]::WriteAllText('$marker', (Get-Location).Path)" }
         Publish 'sluzbak' 'v0.5.0' @{ 'Sluzbak/Sluzbak.ps1' = "'nic'" }
         Remove-Item "$source\mesec.json"
-        $script:lock = [IO.File]::Open("$appRoot\Sluzbak\Sluzbak.ps1", 'Open', 'Read', 'None')
+        $script:before = (Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc
         Click $ui.RefreshButton
-        Check 'kontrola je na kartě vidět a spustit jde i během ní' (Card 'Spac') 'verze 1.0.0 | Hledám nejnovější vydání… | True | Visible'
+        Check 'kontrola je na kartě vidět a spustit jde i během ní' (Card 'Spac') 'verze 1.0.0 | Hledám nejnovější vydání… | Launch (Remove) | Visible'
     }
     {
+        Check 'nové vydání se nabídne, ale samo se neinstaluje' "$(Card 'Spac') | $((Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc -eq $script:before)" 'verze 1.0.0 | Vyšla verze 1.1.0. | Launch Update Remove | Hidden | True'
+        # Vydání Měšce brána zná z první kontroly, takže ho nainstalovat jde dál.
+        Check 'chyba u jedné aplikace ostatní nezastaví' (Card 'Mesec') 'není nainstalováno | Ve složce s vydáními chybí mesec.json. | Install | Hidden'
+        Check 'chyba je červeně, nabídka ne' "$(Red $ui.MesecStatus) $(Red $ui.SpacStatus)" 'True False'
+
+        # Službák zrovna běží: drží svou složku.
+        $script:lock = [IO.File]::Open("$appRoot\Sluzbak\Sluzbak.ps1", 'Open', 'Read', 'None')
+        Click $ui.SpacUpdate
+        Click $ui.SluzbakUpdate
+        Check 'aktualizace je na kartě vidět' (Card 'Spac') 'verze 1.0.0 | Aktualizuju na 1.1.0… | (Launch) (Update) (Remove) | Visible'
+    }
+    {
+        Check 'Aktualizovat nainstaluje nové vydání' (Card 'Spac') 'verze 1.1.0 | Právě aktualizováno. | Launch Remove | Hidden'
+        Check 'běžící aplikace zůstane, jak je, a jde spustit' (Card 'Sluzbak') 'verze 0.4.0 | Službák právě běží. Zavři ho a zkus to znovu. | Launch Update Remove | Hidden'
+        Click $ui.SluzbakRemove
+        Check 'odinstalování je na kartě vidět' (Card 'Sluzbak') 'verze 0.4.0 | Odinstalovávám… | (Launch) (Update) (Remove) | Visible'
+    }
+    {
+        Check 'běžící aplikace se neodinstaluje' "$(Card 'Sluzbak') | $(Red $ui.SluzbakStatus) | $(Test-Path "$appRoot\Sluzbak\Sluzbak.ps1")" 'verze 0.4.0 | Službák právě běží. Zavři ho a zkus to znovu. | Launch Update Remove | Hidden | True | True'
         $script:lock.Dispose()
-        Check 'nové vydání se nainstaluje samo' (Card 'Spac') 'verze 1.1.0 | Právě aktualizováno. | True | Hidden'
-        Check 'běžící aplikace zůstane, jak je, a jde spustit' (Card 'Sluzbak') 'verze 0.4.0 | Službák právě běží, novou verzi nainstaluju, až ho zavřeš. | True | Hidden'
-        Check 'chyba u jedné aplikace ostatní nezastaví' (Card 'Mesec') 'verze 1.0.0 | Ve složce s vydáními chybí mesec.json. | True | Hidden'
-        Check 'chyba je červeně, úspěch ne' "$(Red $ui.MesecStatus) $(Red $ui.SpacStatus)" 'True False'
+        Click $ui.SluzbakRemove
+    }
+    {
+        Check 'Odinstalovat aplikaci odebere' (Card 'Sluzbak') 'není nainstalováno | Odinstalováno. Tvoje data zůstala. | Install | Hidden'
+        Check 'ze společné složky zmizí jen ona' "$(Test-Path "$appRoot\Sluzbak") $(Test-Path "$appRoot\Sluzbak.old") $(Test-Path "$appRoot\Spac\Spac.ps1")" 'False False True'
 
         Click $ui.SpacLaunch
         Check 'spuštění aplikace bránu zavře' $window.IsVisible $false
@@ -226,12 +273,15 @@ Open-Gateway @(
 for ($i = 0; $i -lt 150 -and -not (Test-Path $marker); $i++) { Start-Sleep -Milliseconds 100 }
 Check 'brána pustila Spáče a v jeho složce' $(if (Test-Path $marker) { [IO.File]::ReadAllText($marker) } else { 'nespustil se' }) "$appRoot\Spac"
 
-# Podruhé už je nainstalováno: nic se nestahuje a Službák, který mezitím skončil, se doaktualizuje.
+# Podruhé brána ukáže, co je na disku, a nic nemění: co je odinstalované, se samo nevrátí.
 $before = (Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc
 Open-Gateway @(
     {
-        Check 'aktuální aplikace se znovu neinstaluje' "$(Card 'Spac') | $((Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc -eq $before)" 'verze 1.1.0 | Máš nejnovější vydání. | True | Hidden | True'
-        Check 'odložená aktualizace se dožene' (Card 'Sluzbak') 'verze 0.5.0 | Právě aktualizováno. | True | Hidden'
+        Check 'aktuální aplikace se znovu neinstaluje' "$(Card 'Spac') | $((Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc -eq $before)" 'verze 1.1.0 | Máš nejnovější vydání. | Launch Remove | Hidden | True'
+        Check 'odinstalovaná aplikace se sama nevrátí' "$(Card 'Sluzbak') | $(Test-Path "$appRoot\Sluzbak")" 'není nainstalováno | Ke stažení je verze 0.5.0. | Install | Hidden | False'
+        # Tentokrát brána vydání Měšce nezná vůbec.
+        Click $ui.MesecInstall
+        Check 'bez známého vydání instalovat nejde' "$(Card 'Mesec') | $($jobs.Count)" 'není nainstalováno | Ve složce s vydáními chybí mesec.json. | (Install) | Hidden | 0'
     }
 )
 
@@ -245,7 +295,7 @@ Publish 'branocesta' 'v99.0.0' @{
     'Branocesta/Branocesta.ps1' = 'nová brána'; 'Branocesta/Apps.ps1' = 'nové aplikace'
     'Branocesta/Branocesta.xaml' = 'nové okno'; 'Branocesta/assets/branocesta.ico' = 'nová ikona'
 }
-$hint = 'Po spuštění aplikace se brána zavře. Nová vydání aplikací i sebe samé si stahuje z GitHubu.'
+$hint = 'Po spuštění aplikace se brána zavře. Všechno, co nainstaluješ, leží v jedné složce.'
 
 Open-Gateway -from $copy @(
     {
@@ -263,7 +313,7 @@ Open-Gateway -from $copy @(
     }
     {
         # Na disku je teď z Apps.ps1 nesmysl; okno, které už běží, musí dál pracovat s tím, co načetlo při startu.
-        Check 'běžící okno po aktualizaci brány funguje dál' (Card 'Spac') 'verze 1.1.0 | Máš nejnovější vydání. | True | Hidden'
+        Check 'běžící okno po aktualizaci brány funguje dál' (Card 'Spac') 'verze 1.1.0 | Máš nejnovější vydání. | Launch Remove | Hidden'
         Check 'a podruhé už se brána nepřepisuje' $ui.FooterText.Text 'Brána se aktualizovala na verzi 99.0.0. Uvidíš ji při příštím otevření.'
     }
 )

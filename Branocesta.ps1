@@ -1,5 +1,6 @@
-﻿# Bránocesta: brána ke Spáči, Službákovi a Měšci. Stáhne z GitHubu jejich nejnovější vydání, nainstaluje je
-# a vybranou aplikaci spustí; sama se přitom zavře. Okno je popsané v Branocesta.xaml, vydání řeší Apps.ps1.
+﻿# Bránocesta: brána ke Spáči, Službákovi a Měšci. Každou z nich jde na její kartě nainstalovat z nejnovějšího
+# vydání na GitHubu, aktualizovat, odinstalovat a spustit; při spuštění se brána zavře.
+# Okno je popsané v Branocesta.xaml, vydání řeší Apps.ps1.
 #   Branocesta.ps1                      spustí bránu
 #   Branocesta.ps1 -Install             vytvoří zástupce s ikonou v nabídce Start, na ploše a ve složce s bránou
 #   Branocesta.ps1 -AppsPath <složka>   aplikace instaluje jinam než do %LOCALAPPDATA% (testy)
@@ -59,7 +60,8 @@ public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref i
 
 # Cesty z parametrů mohou být relativní k aktuální složce PowerShellu; .NET by je bral od složky procesu.
 function Resolve-Target([string]$path) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path) }
-# Aplikace jsou mimo složku s bránou: aktualizace brány je nesmaže a do repozitáře se nedostanou.
+# Všechny aplikace jsou v jedné složce, ať brána leží kdekoli. Aktualizace brány na ni nesahá a do repozitáře
+# se nedostane.
 $AppsPath = if ($AppsPath) { Resolve-Target $AppsPath } else { Join-Path $env:LOCALAPPDATA 'Branocesta\apps' }
 if ($Source) { $Source = Resolve-Target $Source }
 if ($Screenshot) { $Screenshot = Resolve-Target $Screenshot }
@@ -72,9 +74,9 @@ $state = @{
     # Id aplikace -> @{ Installed; Latest; Phase; Error; Fresh }
     #   Installed  tag nainstalovaného vydání, '' = nainstalovaná není
     #   Latest     nejnovější vydání z Get-LatestRelease, $null = ještě ho neznáme
-    #   Phase      'Checking' (hledá se vydání), 'Installing' nebo 'Idle'
-    #   Error      hláška, proč se kontrola nebo instalace nepovedla
-    #   Fresh      co se při tomhle spuštění stalo: 'Installed', 'Updated' nebo $null
+    #   Phase      'Checking' (hledá se vydání), 'Installing', 'Removing' nebo 'Idle'
+    #   Error      hláška, proč se poslední kontrola, instalace nebo odinstalování nepovedly
+    #   Fresh      co se s aplikací stalo od poslední kontroly: 'Installed', 'Updated', 'Removed' nebo $null
     Apps = @{}
     # Vydání brány samotné: Checked = při tomhle otevření se už našlo novější, Note = co o tom říct v zápatí.
     Gateway = @{ Checked = $false; Note = $null; IsError = $false }
@@ -134,36 +136,56 @@ function Update-App($app) {
     $id = $app.Id
     $entry = $state.Apps[$id]
     $busy = $entry.Phase -ne 'Idle'
+    $installed = [bool]$entry.Installed
+    # Venku je jiné vydání, než jaké je nainstalované. Dokud se vydání nepodařilo zjistit, neví se.
+    $outdated = $installed -and $entry.Latest -and $entry.Latest.Tag -ne $entry.Installed
 
-    $ui["${id}Version"].Text = if ($entry.Installed) { "verze $(Format-Tag $entry.Installed)" } else { 'není nainstalováno' }
+    $ui["${id}Icon"].Opacity = if ($installed) { 1 } else { 0.45 }
+    $ui["${id}Version"].Text = if ($installed) { "verze $(Format-Tag $entry.Installed)" } else { 'není nainstalováno' }
     $ui["${id}Busy"].Visibility = if ($busy) { 'Visible' } else { 'Hidden' }
-    # Co je nainstalované, jde spustit i bez internetu; jen ne ve chvíli, kdy se mění soubory.
-    $ui["${id}Launch"].IsEnabled = [bool]$entry.Installed -and $entry.Phase -ne 'Installing'
+
+    # Hlavní tlačítko je buď Spustit, nebo Nainstalovat. Dvě vedlejší se jen schovávají (Hidden), ať karta
+    # drží výšku.
+    $ui["${id}Launch"].Visibility = if ($installed) { 'Visible' } else { 'Collapsed' }
+    $ui["${id}Install"].Visibility = if ($installed) { 'Collapsed' } else { 'Visible' }
+    $ui["${id}Update"].Visibility = if ($outdated) { 'Visible' } else { 'Hidden' }
+    $ui["${id}Remove"].Visibility = if ($installed) { 'Visible' } else { 'Hidden' }
+    # Co je nainstalované, jde spustit i bez internetu a během kontroly; jen ne ve chvíli, kdy se mění soubory.
+    $ui["${id}Launch"].IsEnabled = $installed -and $entry.Phase -notin 'Installing', 'Removing'
+    # Nainstalovat jde jen vydání, o kterém brána ví.
+    $ui["${id}Install"].IsEnabled = -not $busy -and [bool]$entry.Latest
+    $ui["${id}Update"].IsEnabled = -not $busy
+    $ui["${id}Remove"].IsEnabled = -not $busy
 
     $ui["${id}Status"].Foreground = $window.FindResource($(if ($entry.Error -and -not $busy) { 'Danger' } else { 'Muted' }))
     $ui["${id}Status"].Text =
         if ($entry.Phase -eq 'Checking') { 'Hledám nejnovější vydání…' }
         elseif ($entry.Phase -eq 'Installing') {
-            $(if ($entry.Installed) { 'Aktualizuju na ' } else { 'Instaluju ' }) + (Format-Tag $entry.Latest.Tag) + '…'
+            $(if ($installed) { 'Aktualizuju na ' } else { 'Instaluju ' }) + (Format-Tag $entry.Latest.Tag) + '…'
         }
+        elseif ($entry.Phase -eq 'Removing') { 'Odinstalovávám…' }
         elseif ($entry.Error) { $entry.Error }
         elseif ($entry.Fresh -eq 'Installed') { 'Právě nainstalováno.' }
         elseif ($entry.Fresh -eq 'Updated') { 'Právě aktualizováno.' }
-        elseif ($entry.Latest) { 'Máš nejnovější vydání.' }
-        else { '' }
+        elseif ($entry.Fresh -eq 'Removed') { 'Odinstalováno. Tvoje data zůstala.' }
+        elseif (-not $entry.Latest) { '' }
+        elseif (-not $installed) { "Ke stažení je verze $(Format-Tag $entry.Latest.Tag)." }
+        elseif ($outdated) { "Vyšla verze $(Format-Tag $entry.Latest.Tag)." }
+        else { 'Máš nejnovější vydání.' }
 }
 
-# ---- Kontrola a instalace vydání ----
-# Pro každou aplikaci zvlášť se zjistí nejnovější vydání; co není nainstalované nebo je starší, se hned
-# stáhne. Chyba u jedné aplikace ostatní nezastaví.
+# ---- Kontrola vydání ----
+# Brána sama jen zjistí, jaké vydání je u každé aplikace nejnovější. Instalaci, aktualizaci i odinstalování
+# spouští až tlačítko na kartě. Chyba u jedné aplikace ostatní nezastaví.
 
 function Start-Refresh {
-    # Dvě kontroly naráz by si navzájem přepisovaly rozdělané soubory.
+    # Dokud něco běží, další kontrola nezačne: přepsala by stav karty, na které se zrovna pracuje.
     if ($jobs.Count) { return }
     foreach ($app in $apps) {
         $entry = $state.Apps[$app.Id]
         $entry.Phase = 'Checking'
         $entry.Error = $null
+        $entry.Fresh = $null
         Update-App $app
         Start-Work 'Get-LatestRelease' @($context, $app) 'Complete-Check' $app
     }
@@ -175,15 +197,20 @@ function Start-Refresh {
 function Complete-Check($app, $result) {
     $entry = $state.Apps[$app.Id]
     $entry.Phase = 'Idle'
-    if (-not $result.Ok) { $entry.Error = $result.Message }
-    else {
-        $entry.Latest = $result.Data
-        if ($entry.Installed -ne $entry.Latest.Tag) {
-            $entry.Phase = 'Installing'
-            Start-Work 'Install-Release' @($context, $app, $entry.Latest) 'Complete-Install' $app
-        }
-    }
+    if ($result.Ok) { $entry.Latest = $result.Data } else { $entry.Error = $result.Message }
     Update-App $app
+}
+
+# ---- Instalace, aktualizace a odinstalování ----
+# Nainstalovat a Aktualizovat jsou tatáž úloha: stáhne nejnovější vydání a vymění jím složku aplikace.
+
+function Start-Install($app) {
+    $entry = $state.Apps[$app.Id]
+    if ($entry.Phase -ne 'Idle' -or -not $entry.Latest) { return }
+    $entry.Phase = 'Installing'
+    $entry.Error = $null
+    Update-App $app
+    Start-Work 'Install-Release' @($context, $app, $entry.Latest) 'Complete-Install' $app
 }
 
 function Complete-Install($app, $result) {
@@ -193,6 +220,26 @@ function Complete-Install($app, $result) {
     else {
         $entry.Fresh = if ($entry.Installed) { 'Updated' } else { 'Installed' }
         $entry.Installed = [string]$result.Data
+    }
+    Update-App $app
+}
+
+function Start-Uninstall($app) {
+    $entry = $state.Apps[$app.Id]
+    if ($entry.Phase -ne 'Idle' -or -not $entry.Installed) { return }
+    $entry.Phase = 'Removing'
+    $entry.Error = $null
+    Update-App $app
+    Start-Work 'Uninstall-App' @($context, $app) 'Complete-Uninstall' $app
+}
+
+function Complete-Uninstall($app, $result) {
+    $entry = $state.Apps[$app.Id]
+    $entry.Phase = 'Idle'
+    if (-not $result.Ok) { $entry.Error = $result.Message }
+    else {
+        $entry.Fresh = 'Removed'
+        $entry.Installed = ''
     }
     Update-App $app
 }
@@ -266,9 +313,10 @@ try {
     }
 
     $ui = @{}
-    'RefreshButton', 'FooterText', 'VersionText' | ForEach-Object { $ui[$_] = $window.FindName($_) }
+    'FolderButton', 'RefreshButton', 'FooterText', 'VersionText' | ForEach-Object { $ui[$_] = $window.FindName($_) }
     foreach ($app in $apps) {
-        'Version', 'Status', 'Busy', 'Launch' | ForEach-Object { $ui["$($app.Id)$_"] = $window.FindName("$($app.Id)$_") }
+        'Icon', 'Version', 'Status', 'Busy', 'Launch', 'Install', 'Update', 'Remove' |
+            ForEach-Object { $ui["$($app.Id)$_"] = $window.FindName("$($app.Id)$_") }
     }
     $missing = @($ui.Keys | Where-Object { $null -eq $ui[$_] } | Sort-Object)
     if ($missing) { throw "V Branocesta.xaml chybí prvky: $($missing -join ', ')" }
@@ -285,10 +333,20 @@ try {
     })
 
     foreach ($app in $apps) {
-        $ui["$($app.Id)Launch"].Tag = $app
-        $ui["$($app.Id)Launch"].Add_Click({ param($button) Start-App $button.Tag })
+        $id = $app.Id
+        'Launch', 'Install', 'Update', 'Remove' | ForEach-Object { $ui["$id$_"].Tag = $app }
+        $ui["${id}Launch"].Add_Click({ param($button) Start-App $button.Tag })
+        $ui["${id}Install"].Add_Click({ param($button) Start-Install $button.Tag })
+        $ui["${id}Update"].Add_Click({ param($button) Start-Install $button.Tag })
+        $ui["${id}Remove"].Add_Click({ param($button) Start-Uninstall $button.Tag })
     }
 
+    $ui.FolderButton.ToolTip = "Otevře složku, ve které jsou nainstalované aplikace: $AppsPath"
+    $ui.FolderButton.Add_Click({
+        # Dokud není nic nainstalované, složka ještě neexistuje.
+        $null = [IO.Directory]::CreateDirectory($AppsPath)
+        Start-Process -FilePath $AppsPath
+    })
     $ui.RefreshButton.Add_Click({ Start-Refresh })
     $window.Add_KeyDown({
         param($source, $e)
@@ -324,10 +382,10 @@ try {
     $timer.Start()
     $null = $window.ShowDialog()
     $timer.Stop()
-    # Rozdělaná instalace se nechá doběhnout: konec procesu uprostřed výměny souborů by aplikaci nebo bránu
-    # nechal rozbitou. Ostatní úlohy jen čtou a na jejich dokončení se nečeká.
+    # Rozdělaná instalace nebo odinstalování se nechají doběhnout: konec procesu uprostřed výměny souborů by
+    # aplikaci nebo bránu nechal rozbitou. Ostatní úlohy jen čtou a na jejich dokončení se nečeká.
     foreach ($job in $jobs) {
-        if ($job.Done -in 'Complete-Install', 'Complete-GatewayUpdate') { $null = $job.Handle.AsyncWaitHandle.WaitOne(90000) }
+        if ($job.Done -in 'Complete-Install', 'Complete-Uninstall', 'Complete-GatewayUpdate') { $null = $job.Handle.AsyncWaitHandle.WaitOne(90000) }
         else { $null = $job.Shell.BeginStop($null, $null) }
     }
 }

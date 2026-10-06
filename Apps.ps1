@@ -1,10 +1,11 @@
-﻿# Apps.ps1: které aplikace Bránocesta zná, jak zjistí jejich nejnovější vydání na GitHubu a jak ho nainstaluje.
+﻿# Apps.ps1: které aplikace Bránocesta zná, jak zjistí jejich nejnovější vydání na GitHubu, jak ho nainstaluje
+# a jak aplikaci zase odebere.
 # Žádné okno: funkce běží na pozadí (Branocesta.ps1) i v testech (tests/test.ps1).
 # Úlohy na pozadí si tenhle soubor nenačítají z disku, ale z textu, který si okno přečetlo při startu,
 # takže se tu nedá spoléhat na $PSScriptRoot.
 #
 # $context = @{ Source = $null; Root = '...' }
-# Root je složka, do které se aplikace instalují. Se Source = cesta ke složce se místo GitHubu čtou soubory
+# Root je jedna společná složka, do které se aplikace instalují (každá do <Root>\<Id>). Se Source = cesta ke složce se místo GitHubu čtou soubory
 # <repozitář>.json a <repozitář>.zip (viz Read-Source).
 
 Add-Type -AssemblyName System.Net.Http, System.IO.Compression, System.IO.Compression.FileSystem
@@ -31,6 +32,9 @@ function New-AppError([string]$kind, [string]$message) {
     $exception.Data['Kind'] = $kind
     $exception
 }
+
+# Běžící aplikace má svou složku otevřenou a Windows ji nedovolí přejmenovat ani smazat.
+function New-BusyError($app) { New-AppError 'Busy' "$($app.Name) právě běží. Zavři ho a zkus to znovu." }
 
 function ConvertTo-AppError([int]$status) {
     switch ($status) {
@@ -156,9 +160,8 @@ function Install-Release($context, $app, $release) {
 
         $replaces = Test-Path -LiteralPath $directory
         if ($replaces) {
-            # Běžící aplikace má svou složku otevřenou a Windows ji přejmenovat nedovolí.
             try { [IO.Directory]::Move($directory, $former) }
-            catch { throw (New-AppError 'Busy' "$($app.Name) právě běží, novou verzi nainstaluju, až ho zavřeš.") }
+            catch { throw (New-BusyError $app) }
         }
         try { [IO.Directory]::Move($staging, $directory) }
         catch {
@@ -171,6 +174,19 @@ function Install-Release($context, $app, $release) {
         }
     }
     $release.Tag
+}
+
+# Odebere aplikaci ze složky <Root>\<Id>. Složka se nejdřív přejmenuje a teprve pak maže: přejmenování se
+# povede buď celé, nebo vůbec, takže běžící aplikace nezůstane napůl smazaná. Data si aplikace drží jinde.
+function Uninstall-App($context, $app) {
+    $directory = Get-AppDirectory $context $app
+    $former = "$directory.old"
+    if (Test-Path -LiteralPath $former) { Remove-Item -LiteralPath $former -Recurse -Force }
+    if (-not (Test-Path -LiteralPath $directory)) { return }
+    try { [IO.Directory]::Move($directory, $former) }
+    catch { throw (New-BusyError $app) }
+    # Co nejde smazat hned, uklidí příští instalace.
+    try { Remove-Item -LiteralPath $former -Recurse -Force } catch { }
 }
 
 # ---- Brána sama ----

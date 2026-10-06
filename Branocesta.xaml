@@ -1,5 +1,6 @@
 <!-- Okno brány. Načítá ho Branocesta.ps1, takže tu nejsou žádné obsluhy událostí, jen vzhled a jména prvků.
-     Každá aplikace má kartu s prvky <Id>Version, <Id>Status, <Id>Busy a <Id>Launch; Id je z Apps.ps1. -->
+     Každá aplikace má kartu s prvky <Id>Icon, <Id>Version, <Id>Status, <Id>Busy a s tlačítky <Id>Launch,
+     <Id>Install, <Id>Update a <Id>Remove; Id je z Apps.ps1. -->
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Bránocesta" Width="900" SizeToContent="Height" ResizeMode="CanMinimize"
@@ -78,7 +79,7 @@
             <Setter Property="Margin" Value="0,16,0,0"/>
         </Style>
 
-        <!-- Stav aplikace: hledání vydání, instalace, hotovo nebo chyba (barvu mění Branocesta.ps1) -->
+        <!-- Stav aplikace: hledání vydání, instalace, nová verze, hotovo nebo chyba (barvu mění Branocesta.ps1) -->
         <Style x:Key="AppStatus" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Foreground" Value="{StaticResource Muted}"/>
@@ -163,6 +164,41 @@
             </Setter>
         </Style>
 
+        <!-- Tlačítko Nainstalovat: jen obrys v barvě aplikace (Foreground). Plné je až Spustit. -->
+        <Style x:Key="InstallButton" TargetType="Button">
+            <Setter Property="Height" Value="44"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border x:Name="Shade" Background="{TemplateBinding Foreground}" Opacity="0.08" CornerRadius="11"/>
+                            <Border x:Name="Bd" BorderBrush="{TemplateBinding Foreground}" BorderThickness="1.5" CornerRadius="11"/>
+                            <ContentPresenter x:Name="Label" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Shade" Property="Opacity" Value="0.2"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Shade" Property="Opacity" Value="0.13"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Shade" Property="Opacity" Value="0"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Stroke}"/>
+                                <Setter TargetName="Label" Property="TextElement.Foreground" Value="{StaticResource Muted}"/>
+                                <Setter Property="Cursor" Value="Arrow"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Nenápadná pilulka pro vedlejší akce -->
         <Style x:Key="QuietButton" TargetType="Button">
             <Setter Property="Height" Value="30"/>
@@ -205,11 +241,19 @@
 
         <!-- Záhlaví: brána s cestou jako v ikoně (assets/branocesta.ico) -->
         <DockPanel>
-            <Button x:Name="RefreshButton" DockPanel.Dock="Right" Style="{StaticResource QuietButton}"
+            <Button x:Name="RefreshButton" DockPanel.Dock="Right" Style="{StaticResource QuietButton}" TabIndex="1"
                     VerticalAlignment="Center" ToolTip="Znovu se podívá po nových vydáních (F5).">
                 <TextBlock>
                     <Run FontFamily="Segoe MDL2 Assets" FontSize="10" Text="&#xE72C;"/>
                     <Run Text=" Zkontrolovat vydání"/>
+                </TextBlock>
+            </Button>
+            <!-- Všechny aplikace se instalují do jedné složky; kam, dopíše Branocesta.ps1 do nápovědy tlačítka. -->
+            <Button x:Name="FolderButton" DockPanel.Dock="Right" Style="{StaticResource QuietButton}" TabIndex="0"
+                    VerticalAlignment="Center" Margin="0,0,8,0">
+                <TextBlock>
+                    <Run FontFamily="Segoe MDL2 Assets" FontSize="10" Text="&#xED25;"/>
+                    <Run Text=" Složka aplikací"/>
                 </TextBlock>
             </Button>
             <Viewbox Width="46" Height="46">
@@ -253,7 +297,7 @@
             <!-- Spáč: srpek měsíce a dvě hvězdy -->
             <Border Style="{StaticResource Card}">
                 <StackPanel>
-                    <Viewbox Width="72" Height="72" HorizontalAlignment="Left">
+                    <Viewbox x:Name="SpacIcon" Width="72" Height="72" HorizontalAlignment="Left">
                         <Canvas Width="256" Height="256">
                             <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60">
                                 <Rectangle.Fill>
@@ -293,16 +337,27 @@
                     <TextBlock x:Name="SpacStatus" Style="{StaticResource AppStatus}"/>
                     <ProgressBar x:Name="SpacBusy" Style="{StaticResource BusyBar}" Foreground="{StaticResource SpacAccent}"
                                  AutomationProperties.Name="Spáč: pracuju"/>
-                    <Button x:Name="SpacLaunch" Style="{StaticResource LaunchButton}" Content="Spustit" IsEnabled="False"
-                            Background="{StaticResource SpacAccent}" Foreground="{StaticResource SpacOnAccent}"
-                            AutomationProperties.Name="Spustit Spáče"/>
+                    <!-- Nainstalovaná aplikace má Spustit, ostatní Nainstalovat; které z nich, určí Branocesta.ps1. -->
+                    <Grid>
+                        <Button x:Name="SpacLaunch" Style="{StaticResource LaunchButton}" Content="Spustit" Visibility="Collapsed"
+                                Background="{StaticResource SpacAccent}" Foreground="{StaticResource SpacOnAccent}"
+                                AutomationProperties.Name="Spustit Spáče"/>
+                        <Button x:Name="SpacInstall" Style="{StaticResource InstallButton}" Content="Nainstalovat" IsEnabled="False"
+                                Foreground="{StaticResource SpacAccent}" AutomationProperties.Name="Nainstalovat Spáče"/>
+                    </Grid>
+                    <DockPanel Height="30" Margin="0,10,0,0" LastChildFill="False">
+                        <Button x:Name="SpacUpdate" Style="{StaticResource QuietButton}" Content="Aktualizovat" Visibility="Hidden"
+                                Foreground="{StaticResource SpacAccent}" AutomationProperties.Name="Aktualizovat Spáče"/>
+                        <Button x:Name="SpacRemove" DockPanel.Dock="Right" Style="{StaticResource QuietButton}" Content="Odinstalovat"
+                                Visibility="Hidden" AutomationProperties.Name="Odinstalovat Spáče"/>
+                    </DockPanel>
                 </StackPanel>
             </Border>
 
             <!-- Službák: oko, které hlídá jedno místo -->
             <Border Style="{StaticResource Card}">
                 <StackPanel>
-                    <Viewbox Width="72" Height="72" HorizontalAlignment="Left">
+                    <Viewbox x:Name="SluzbakIcon" Width="72" Height="72" HorizontalAlignment="Left">
                         <Canvas Width="256" Height="256">
                             <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60">
                                 <Rectangle.Fill>
@@ -344,16 +399,26 @@
                     <TextBlock x:Name="SluzbakStatus" Style="{StaticResource AppStatus}"/>
                     <ProgressBar x:Name="SluzbakBusy" Style="{StaticResource BusyBar}" Foreground="{StaticResource SluzbakAccent}"
                                  AutomationProperties.Name="Službák: pracuju"/>
-                    <Button x:Name="SluzbakLaunch" Style="{StaticResource LaunchButton}" Content="Spustit" IsEnabled="False"
-                            Background="{StaticResource SluzbakAccent}" Foreground="{StaticResource SluzbakOnAccent}"
-                            AutomationProperties.Name="Spustit Službák"/>
+                    <Grid>
+                        <Button x:Name="SluzbakLaunch" Style="{StaticResource LaunchButton}" Content="Spustit" Visibility="Collapsed"
+                                Background="{StaticResource SluzbakAccent}" Foreground="{StaticResource SluzbakOnAccent}"
+                                AutomationProperties.Name="Spustit Službák"/>
+                        <Button x:Name="SluzbakInstall" Style="{StaticResource InstallButton}" Content="Nainstalovat" IsEnabled="False"
+                                Foreground="{StaticResource SluzbakAccent}" AutomationProperties.Name="Nainstalovat Službák"/>
+                    </Grid>
+                    <DockPanel Height="30" Margin="0,10,0,0" LastChildFill="False">
+                        <Button x:Name="SluzbakUpdate" Style="{StaticResource QuietButton}" Content="Aktualizovat" Visibility="Hidden"
+                                Foreground="{StaticResource SluzbakAccent}" AutomationProperties.Name="Aktualizovat Službák"/>
+                        <Button x:Name="SluzbakRemove" DockPanel.Dock="Right" Style="{StaticResource QuietButton}" Content="Odinstalovat"
+                                Visibility="Hidden" AutomationProperties.Name="Odinstalovat Službák"/>
+                    </DockPanel>
                 </StackPanel>
             </Border>
 
             <!-- Měšec: tři rostoucí sloupce a mince -->
             <Border Style="{StaticResource Card}">
                 <StackPanel>
-                    <Viewbox Width="72" Height="72" HorizontalAlignment="Left">
+                    <Viewbox x:Name="MesecIcon" Width="72" Height="72" HorizontalAlignment="Left">
                         <Canvas Width="256" Height="256">
                             <Rectangle Width="256" Height="256" RadiusX="60" RadiusY="60">
                                 <Rectangle.Fill>
@@ -397,9 +462,19 @@
                     <TextBlock x:Name="MesecStatus" Style="{StaticResource AppStatus}"/>
                     <ProgressBar x:Name="MesecBusy" Style="{StaticResource BusyBar}" Foreground="{StaticResource MesecAccent}"
                                  AutomationProperties.Name="Měšec: pracuju"/>
-                    <Button x:Name="MesecLaunch" Style="{StaticResource LaunchButton}" Content="Spustit" IsEnabled="False"
-                            Background="{StaticResource MesecAccent}" Foreground="{StaticResource MesecOnAccent}"
-                            AutomationProperties.Name="Spustit Měšec"/>
+                    <Grid>
+                        <Button x:Name="MesecLaunch" Style="{StaticResource LaunchButton}" Content="Spustit" Visibility="Collapsed"
+                                Background="{StaticResource MesecAccent}" Foreground="{StaticResource MesecOnAccent}"
+                                AutomationProperties.Name="Spustit Měšec"/>
+                        <Button x:Name="MesecInstall" Style="{StaticResource InstallButton}" Content="Nainstalovat" IsEnabled="False"
+                                Foreground="{StaticResource MesecAccent}" AutomationProperties.Name="Nainstalovat Měšec"/>
+                    </Grid>
+                    <DockPanel Height="30" Margin="0,10,0,0" LastChildFill="False">
+                        <Button x:Name="MesecUpdate" Style="{StaticResource QuietButton}" Content="Aktualizovat" Visibility="Hidden"
+                                Foreground="{StaticResource MesecAccent}" AutomationProperties.Name="Aktualizovat Měšec"/>
+                        <Button x:Name="MesecRemove" DockPanel.Dock="Right" Style="{StaticResource QuietButton}" Content="Odinstalovat"
+                                Visibility="Hidden" AutomationProperties.Name="Odinstalovat Měšec"/>
+                    </DockPanel>
                 </StackPanel>
             </Border>
 
@@ -410,7 +485,7 @@
                        Margin="16,0,0,0"/>
             <!-- Když vyjde nová verze brány, Branocesta.ps1 sem místo nápovědy napíše, co s ní udělala. -->
             <TextBlock x:Name="FooterText" FontSize="12" Foreground="{StaticResource Muted}" TextWrapping="Wrap"
-                       Text="Po spuštění aplikace se brána zavře. Nová vydání aplikací i sebe samé si stahuje z GitHubu."/>
+                       Text="Po spuštění aplikace se brána zavře. Všechno, co nainstaluješ, leží v jedné složce."/>
         </DockPanel>
     </StackPanel>
     </Border>
