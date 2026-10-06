@@ -25,18 +25,6 @@ Otevřeš bránu, klikneš na **Spustit** a jsi v aplikaci. Brána se přitom za
 
 ## Instalace
 
-Nejrychleji jedním příkazem. Vlož ho do PowerShellu nebo do okna Spustit (<kbd>Win</kbd>+<kbd>R</kbd>):
-
-```
-powershell -c "irm https://raw.githubusercontent.com/JohnyLeeJohnes/branocesta/master/install.ps1 | iex"
-```
-
-Stáhne nejnovější vydání brány do `%LOCALAPPDATA%\Branocesta`, vytvoří zástupce **Bránocesta** s ikonou
-v nabídce Start a na ploše a rovnou ji otevře. Brána si pak sama stáhne Spáče, Službák a Měšec. Co přesně
-příkaz udělá, si můžeš předem přečíst v [install.ps1](install.ps1).
-
-Chceš bránu mít ve vlastní složce?
-
 1. Stáhni **[Branocesta.zip](https://github.com/JohnyLeeJohnes/branocesta/releases/latest/download/Branocesta.zip)**.
    Odkaz vede vždycky na nejnovější vydání.
 2. Klikni na stažený ZIP pravým tlačítkem, zvol **Vlastnosti**, dole zaškrtni **Odblokovat** a potvrď.
@@ -50,12 +38,11 @@ Chceš bránu mít ve vlastní složce?
 > `install.cmd` ho ze souborů sundá i sám, jenže k tomu ho Windows nejdřív musí nechat spustit.
 
 - **Jen vyzkoušet:** poklepej na `Branocesta.cmd`, spustí bránu bez vytváření zástupců.
-- **Nová verze brány:** nainstaluje se sama, viz níže. Ručně to jde stejným příkazem, nebo rozbalením
-  nového ZIPu přes starý. Nainstalované aplikace zůstanou.
+- **Nová verze brány:** nainstaluje se sama, viz níže. Ručně to jde rozbalením nového ZIPu přes starý.
+  Nainstalované aplikace zůstanou.
 - **Přesunutí složky:** zástupce ukazuje tam, kde brána leží. Po přesunutí spusť `install.cmd` znovu.
-- **Odebrání:** smaž zástupce z plochy a z nabídky Start a složku `%LOCALAPPDATA%\Branocesta`; je v ní brána
-  nainstalovaná příkazem i aplikace, které stáhla. Bránu ve vlastní složce smaž zvlášť. Data aplikací
-  zůstanou, kde byla, viz níže.
+- **Odebrání:** smaž zástupce z plochy a z nabídky Start, složku s bránou a `%LOCALAPPDATA%\Branocesta`
+  (tam jsou nainstalované aplikace). Jejich data zůstanou, kde byla, viz níže.
 - **Z gitu:** `git clone https://github.com/JohnyLeeJohnes/branocesta.git` a pak rovnou krok 4. Klonování
   označení z internetu nepřidává, takže odblokování odpadá. Naklonovanou bránu aktualizuješ přes `git pull`;
   sama se nepřepisuje, aby ti nezahodila rozdělané úpravy.
@@ -90,6 +77,8 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
   z jedné adresy; jedno otevření brány jich potřebuje čtyři až osm.
 - **Proč skript, a ne `.exe`.** Nepodepsaný `.exe` umí Windows 11 (Smart App Control) zablokovat. Skript
   běží bez podpisu a před spuštěním si ho můžeš celý přečíst.
+- **Proč není instalace jedním příkazem.** Příkaz, který skript stáhne z internetu a rovnou ho spustí,
+  hlásí Microsoft Defender jako trojského koně, ať je ve skriptu cokoli. Proto se brána instaluje ze ZIPu.
 
 ## Úpravy
 
@@ -99,7 +88,6 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
 | `Branocesta.xaml` | Vzhled okna: barvy, styly, karty. |
 | `Apps.ps1` | Seznam aplikací, dotaz na nejnovější vydání, stažení a instalace, aktualizace brány. O okně nic neví. |
 | `Branocesta.cmd`, `install.cmd` | Spuštění bez instalace a vytvoření zástupců. |
-| `install.ps1` | Instalace jedním příkazem: stáhne nejnovější vydání do `%LOCALAPPDATA%\Branocesta` a vytvoří zástupce. |
 | `tools/make-icon.ps1` | Vygeneruje ikonu do `assets/`. |
 | `tools/make-release.ps1` | Sestaví `dist/Branocesta.zip` pro GitHub Release. |
 | `tests/test.ps1` | Zkouška instalace vydání a průchod oknem. |
@@ -132,5 +120,5 @@ powershell -ExecutionPolicy Bypass -File Branocesta.ps1 -AppsPath <složka> -Scr
 timer), Službák (Prague open-data dashboard) and Měšec (budget tracker). On start it asks GitHub for the
 latest release of each app, installs or updates it into `%LOCALAPPDATA%\Branocesta\apps`, and lets you launch
 one; the gateway then closes. It keeps itself up to date the same way. It is a PowerShell script with a WPF
-window: run the one-line installer above, or download `Branocesta.zip` from the latest release, unblock and
-extract it, and run `install.cmd` to get a desktop shortcut. Nothing to compile. The interface is in Czech.
+window: download `Branocesta.zip` from the latest release, unblock and extract it, and run `install.cmd` to
+get a desktop shortcut. Nothing to compile. The interface is in Czech.

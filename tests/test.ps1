@@ -43,12 +43,10 @@ function Publish([string]$repository, [string]$tag, $entries) {
 # ---- Soubory ----
 
 # Bez BOM čte PowerShell 5.1 skript jako ANSI a rozbije češtinu.
-foreach ($file in Get-ChildItem $repo, "$repo\tests", "$repo\tools" -Filter *.ps1 | Where-Object { $_.Name -ne 'install.ps1' }) {
+foreach ($file in Get-ChildItem $repo, "$repo\tests", "$repo\tools" -Filter *.ps1) {
     $bytes = [IO.File]::ReadAllBytes($file.FullName)
     Check "$($file.Name) je UTF-8 s BOM" ('{0:X2}{1:X2}{2:X2}' -f $bytes[0], $bytes[1], $bytes[2]) 'EFBBBF'
 }
-# install.ps1 se pouští přes irm | iex a tam BOM vadí; proto v něm nesmí být nic než ASCII.
-Check 'install.ps1 je čisté ASCII bez BOM' (@([IO.File]::ReadAllBytes("$repo\install.ps1") | Where-Object { $_ -gt 127 }).Count) 0
 # cmd.exe čte spolehlivě jen ASCII a konce řádků CRLF.
 foreach ($file in Get-ChildItem $repo -Filter *.cmd) {
     $text = [IO.File]::ReadAllText($file.FullName)
