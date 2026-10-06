@@ -3,6 +3,14 @@
 Všechny podstatné změny v projektu. Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/),
 verze se řídí [sémantickým verzováním](https://semver.org/lang/cs/).
 
+## [1.2.1] - 2026-10-06
+
+### Opraveno
+
+- Po kliknutí na **Spustit** se brána zavírala dřív, než aplikace ukázala okno. Aplikace se pak mohla otevřít
+  schovaná za jiným oknem a vypadalo to, že se nestalo nic. Brána teď počká na okno aplikace, pošle ho dopředu
+  a teprve pak se zavře. Když aplikace hned skončí nebo se neukáže, brána zůstane otevřená a napíše to na kartě.
+
 ## [1.2.0] - 2026-10-06
 
 ### Přidáno
@@ -61,6 +69,7 @@ První vydání.
 - Test `tests/test.ps1`, který zkouší instalaci vymyšlených vydání a projde okno, a `tools/make-release.ps1`,
   který sestaví `Branocesta.zip` pro GitHub Release.
 
+[1.2.1]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.1.1...v1.2.0
 [1.1.1]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.0.0...v1.1.0

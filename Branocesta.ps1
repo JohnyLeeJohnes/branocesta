@@ -10,7 +10,7 @@ param([switch]$Install, [string]$AppsPath, [string]$Source, [string]$Screenshot)
 
 $ErrorActionPreference = 'Stop'
 # Číslo vydání. Musí sedět s nejnovější verzí v CHANGELOG.md (hlídá tests/test.ps1).
-$version = '1.2.0'
+$version = '1.2.1'
 $icon = Join-Path $PSScriptRoot 'assets\branocesta.ico'
 
 if ($Install) {
