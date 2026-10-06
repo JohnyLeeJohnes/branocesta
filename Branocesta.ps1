@@ -63,11 +63,14 @@ public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref i
 function Resolve-Target([string]$path) { $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path) }
 # Všechny aplikace jsou v jedné složce, ať brána leží kdekoli. Aktualizace brány na ni nesahá a do repozitáře
 # se nedostane.
-$AppsPath = if ($AppsPath) { Resolve-Target $AppsPath } else { Join-Path $env:LOCALAPPDATA 'Branocesta\apps' }
-if ($Source) { $Source = Resolve-Target $Source }
+# $relaunch jsou parametry, se kterými brána běží; stejné dostane, až se po aktualizaci otevře znovu.
+$relaunch = ''
+if ($AppsPath) { $AppsPath = Resolve-Target $AppsPath; $relaunch += " -AppsPath `"$AppsPath`"" }
+else { $AppsPath = Join-Path $env:LOCALAPPDATA 'Branocesta\apps' }
+if ($Source) { $Source = Resolve-Target $Source; $relaunch += " -Source `"$Source`"" }
 if ($Screenshot) { $Screenshot = Resolve-Target $Screenshot }
 $context = @{ Source = $Source; Root = $AppsPath }
-# Sama sebe brána přepisuje jen tam, kde je nainstalovaná. V pracovní kopii z gitu by jí vydání přepsalo
+# Sama sebe brána aktualizuje jen tam, kde je nainstalovaná. V pracovní kopii z gitu by jí vydání přepsalo
 # rozdělanou práci.
 $selfUpdates = -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot '.git'))
 
@@ -79,9 +82,13 @@ $state = @{
     #   Error      hláška, proč se poslední kontrola, instalace, odinstalování nebo spuštění nepovedly
     #   Fresh      co se s aplikací stalo od poslední kontroly: 'Installed', 'Updated', 'Removed' nebo $null
     Apps = @{}
-    # Vydání brány samotné: Checked = při tomhle otevření se už našlo novější, Note = co o tom říct v zápatí.
-    Gateway = @{ Checked = $false; Note = $null; IsError = $false }
-    # Aplikace, na jejíž okno brána čeká: @{ App; Process; Since; GiveUp }, jinak $null (viz Start-App).
+    # Vydání brány samotné: @{ Latest; Phase; Error }
+    #   Latest  vydání novější než to, které běží; $null = žádné takové není, nebo se o něm neví
+    #   Phase   'Idle', 'Updating' (stahuje se), 'Restarting' (nová brána se otevírá) nebo 'Done' (soubory
+    #           jsou vyměněné, ale nová brána se sama neotevřela)
+    #   Error   hláška, proč se aktualizace nepovedla
+    Gateway = @{ Latest = $null; Phase = 'Idle'; Error = $null }
+    # Co brána pustila a na čí okno čeká: @{ App; Process; Since; GiveUp }, jinak $null (viz Start-Launch).
     Launch = $null
     ShotDue = $null
 }
@@ -135,6 +142,8 @@ function Complete-Work {
 # "v1.1.0" -> "1.1.0"; tag, který takhle nevypadá, zůstane, jak je.
 function Format-Tag([string]$tag) { $tag -replace '^v(?=\d)' }
 
+function Test-SelfUpdating { $state.Gateway.Phase -in 'Updating', 'Restarting' }
+
 function Update-App($app) {
     $id = $app.Id
     $entry = $state.Apps[$id]
@@ -154,11 +163,13 @@ function Update-App($app) {
     $ui["${id}Update"].Visibility = if ($outdated) { 'Visible' } else { 'Hidden' }
     $ui["${id}Remove"].Visibility = if ($installed) { 'Visible' } else { 'Hidden' }
     # Co je nainstalované, jde spustit i bez internetu a během kontroly; jen ne ve chvíli, kdy se mění soubory.
-    $ui["${id}Launch"].IsEnabled = $installed -and $entry.Phase -notin 'Installing', 'Removing', 'Launching'
+    # Dokud brána aktualizuje sama sebe, s aplikacemi se nehýbe: za chvíli se otevře znovu.
+    $free = -not $busy -and -not (Test-SelfUpdating)
+    $ui["${id}Launch"].IsEnabled = $installed -and $entry.Phase -notin 'Installing', 'Removing', 'Launching' -and -not (Test-SelfUpdating)
     # Nainstalovat jde jen vydání, o kterém brána ví.
-    $ui["${id}Install"].IsEnabled = -not $busy -and [bool]$entry.Latest
-    $ui["${id}Update"].IsEnabled = -not $busy
-    $ui["${id}Remove"].IsEnabled = -not $busy
+    $ui["${id}Install"].IsEnabled = $free -and [bool]$entry.Latest
+    $ui["${id}Update"].IsEnabled = $free
+    $ui["${id}Remove"].IsEnabled = $free
 
     $ui["${id}Status"].Foreground = $window.FindResource($(if ($entry.Error -and -not $busy) { 'Danger' } else { 'Muted' }))
     $ui["${id}Status"].Text =
@@ -193,7 +204,7 @@ function Start-Refresh {
         Update-App $app
         Start-Work 'Get-LatestRelease' @($context, $app) 'Complete-Check' $app
     }
-    if ($selfUpdates -and -not $state.Gateway.Checked) {
+    if ($selfUpdates -and $state.Gateway.Phase -eq 'Idle') {
         Start-Work 'Get-LatestRelease' @($context, $gateway) 'Complete-GatewayCheck' $gateway
     }
 }
@@ -210,7 +221,7 @@ function Complete-Check($app, $result) {
 
 function Start-Install($app) {
     $entry = $state.Apps[$app.Id]
-    if ($entry.Phase -ne 'Idle' -or -not $entry.Latest) { return }
+    if ($entry.Phase -ne 'Idle' -or -not $entry.Latest -or (Test-SelfUpdating)) { return }
     $entry.Phase = 'Installing'
     $entry.Error = $null
     Update-App $app
@@ -230,7 +241,7 @@ function Complete-Install($app, $result) {
 
 function Start-Uninstall($app) {
     $entry = $state.Apps[$app.Id]
-    if ($entry.Phase -ne 'Idle' -or -not $entry.Installed) { return }
+    if ($entry.Phase -ne 'Idle' -or -not $entry.Installed -or (Test-SelfUpdating)) { return }
     $entry.Phase = 'Removing'
     $entry.Error = $null
     Update-App $app
@@ -249,54 +260,78 @@ function Complete-Uninstall($app, $result) {
 }
 
 # ---- Vydání brány samotné ----
-# Nové vydání brány se nainstaluje na pozadí a projeví se až při příštím otevření: okno, které už běží,
-# se pod rukama nemění. Když se vydání zjistit nepodaří, nic se nehlásí; karty aplikací mají hlášky vlastní.
+# O své aktualizaci brána nerozhoduje sama, stejně jako u aplikací: když vyjde novější vydání, napíše to
+# v zápatí a nabídne tlačítko. Po kliknutí si stáhne nové soubory, přepíše jimi své a otevře se znovu.
+# Když se vydání zjistit nepodaří, nic se nehlásí; karty aplikací mají hlášky vlastní.
 
 function Update-Footer {
-    $brush = if ($state.Gateway.IsError) { 'Danger' } elseif ($state.Gateway.Note) { 'Text' } else { 'Muted' }
+    $own = $state.Gateway
+    $latest = if ($own.Latest) { Format-Tag $own.Latest.Tag }
+    $note =
+        if ($own.Error) { $own.Error }
+        elseif ($own.Phase -eq 'Updating') { "Stahuju verzi $latest brány…" }
+        elseif ($own.Phase -eq 'Restarting') { "Brána se aktualizovala na verzi $latest. Otevírám ji znovu…" }
+        elseif ($own.Phase -eq 'Done') { "Brána se aktualizovala na verzi $latest. Zavři ji a otevři znovu, ať běží ta nová." }
+        elseif ($own.Latest) { "Vyšla verze $latest brány." }
+    $brush = if ($own.Error) { 'Danger' } elseif ($note) { 'Text' } else { 'Muted' }
     $ui.FooterText.Foreground = $window.FindResource($brush)
-    $ui.FooterText.Text = if ($state.Gateway.Note) { $state.Gateway.Note } else { $footerHint }
+    $ui.FooterText.Text = if ($note) { $note } else { $footerHint }
+    $ui.GatewayUpdate.Visibility = if ($own.Latest -and $own.Phase -in 'Idle', 'Updating') { 'Visible' } else { 'Collapsed' }
+    # Karty se během aktualizace brány zamykají (viz Update-App).
+    foreach ($app in $apps) { Update-App $app }
 }
 
 function Complete-GatewayCheck($app, $result) {
-    if (-not $result.Ok -or -not (Test-Newer $result.Data.Tag $version)) { return }
-    # Jednou za otevření stačí; další kontrola by přepisovala soubory, které se právě vyměnily.
-    $state.Gateway.Checked = $true
-    $state.Gateway.Note = "Stahuju novou verzi brány $(Format-Tag $result.Data.Tag)…"
+    if (-not $result.Ok -or $state.Gateway.Phase -ne 'Idle') { return }
+    $state.Gateway.Latest = if (Test-Newer $result.Data.Tag $version) { $result.Data }
     Update-Footer
-    Start-Work 'Update-Gateway' @($context, $result.Data, $PSScriptRoot) 'Complete-GatewayUpdate' $result.Data
+}
+
+function Start-GatewayUpdate {
+    $own = $state.Gateway
+    # Dokud se pracuje s aplikacemi, brána se nevyměňuje: zavřela by okno uprostřed jejich instalace.
+    if ($own.Phase -ne 'Idle' -or -not $own.Latest -or $jobs.Count -or $state.Launch) { return }
+    $own.Phase = 'Updating'
+    $own.Error = $null
+    Update-Footer
+    Start-Work 'Update-Gateway' @($context, $own.Latest, $PSScriptRoot) 'Complete-GatewayUpdate' $own.Latest
 }
 
 function Complete-GatewayUpdate($release, $result) {
-    $state.Gateway.IsError = -not $result.Ok
-    $state.Gateway.Note =
-        if ($result.Ok) { "Brána se aktualizovala na verzi $(Format-Tag $release.Tag). Uvidíš ji při příštím otevření." }
-        else { "Novou verzi brány $(Format-Tag $release.Tag) se nepodařilo nainstalovat. $($result.Message)" }
+    $own = $state.Gateway
+    if (-not $result.Ok) {
+        $own.Phase = 'Idle'
+        $own.Error = "Novou verzi brány $(Format-Tag $release.Tag) se nepodařilo nainstalovat. $($result.Message)"
+        Update-Footer
+        return
+    }
+    # Na disku už je nová brána. Otevře se se stejnými parametry jako tahle, a až ukáže okno, tahle se zavře.
+    $problem = Start-Launch $gateway $PSCommandPath $relaunch
+    $own.Phase = if ($problem) { 'Done' } else { 'Restarting' }
     Update-Footer
 }
 
 # ---- Spuštění aplikace ----
 # Brána aplikaci pustí, počká, až ukáže své okno, pošle ho dopředu a teprve pak se zavře. Kdyby se zavřela
 # hned, Windows by mezitím aktivovaly jiné okno a aplikace by se otevřela schovaná za ním: vypadalo by to,
-# že se nestalo nic.
+# že se nestalo nic. Stejně se brána po aktualizaci otevírá sama znovu.
 
-function Start-App($app) {
-    $entry = $state.Apps[$app.Id]
-    if ($state.Launch -or -not $entry.Installed) { return }
-    $directory = Get-AppDirectory $context $app
+# Pustí skript a zapamatuje si, že brána čeká na jeho okno. Vrací hlášku, když se to nepovede, jinak nic.
+function Start-Launch($app, [string]$script, [string]$extra) {
     $since = Get-Date
     try {
         # conhost --headless spustí PowerShell bez okna konzole, stejně jako zástupci samotných aplikací.
-        $process = Start-Process -FilePath "$env:SystemRoot\System32\conhost.exe" -WorkingDirectory $directory -PassThru `
-            -ArgumentList "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $directory $app.Script)`""
-    } catch {
-        $entry.Error = "Spuštění se nepovedlo: $($_.Exception.Message)"
-        Update-App $app
-        return
-    }
+        $process = Start-Process -FilePath "$env:SystemRoot\System32\conhost.exe" -WorkingDirectory (Split-Path $script) -PassThru `
+            -ArgumentList "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$script`"$extra"
+    } catch { return "Spuštění se nepovedlo: $($_.Exception.Message)" }
     $state.Launch = @{ App = $app; Process = $process; Since = $since; GiveUp = [DateTime]::UtcNow.AddSeconds(30) }
-    $entry.Phase = 'Launching'
-    $entry.Error = $null
+}
+
+function Start-App($app) {
+    $entry = $state.Apps[$app.Id]
+    if ($state.Launch -or -not $entry.Installed -or (Test-SelfUpdating)) { return }
+    $entry.Error = Start-Launch $app (Join-Path (Get-AppDirectory $context $app) $app.Script) ''
+    if (-not $entry.Error) { $entry.Phase = 'Launching' }
     Update-App $app
 }
 
@@ -311,7 +346,7 @@ function Find-AppProcess([datetime]$since) {
     }
 }
 
-# Volá se z časovače, dokud brána čeká na okno spuštěné aplikace.
+# Volá se z časovače, dokud brána čeká na okno toho, co pustila.
 function Complete-Launch {
     $launch = $state.Launch
     if (-not $launch) { return }
@@ -332,6 +367,12 @@ function Complete-Launch {
         elseif ([DateTime]::UtcNow -gt $launch.GiveUp) { "$name se zatím neukázal. Jestli se neotevře, zkus to znovu." }
     if (-not $problem) { return }
     $state.Launch = $null
+    if ($launch.App.Id -eq $gateway.Id) {
+        # Soubory už jsou nové, jen se brána sama znovu neotevřela.
+        $state.Gateway.Phase = 'Done'
+        Update-Footer
+        return
+    }
     $entry = $state.Apps[$launch.App.Id]
     $entry.Phase = 'Idle'
     $entry.Error = $problem
@@ -365,7 +406,7 @@ try {
     }
 
     $ui = @{}
-    'FolderButton', 'RefreshButton', 'FooterText', 'VersionText' | ForEach-Object { $ui[$_] = $window.FindName($_) }
+    'FolderButton', 'RefreshButton', 'FooterText', 'GatewayUpdate', 'VersionText' | ForEach-Object { $ui[$_] = $window.FindName($_) }
     foreach ($app in $apps) {
         'Icon', 'Version', 'Status', 'Busy', 'Launch', 'Install', 'Update', 'Remove' |
             ForEach-Object { $ui["$($app.Id)$_"] = $window.FindName("$($app.Id)$_") }
@@ -397,9 +438,12 @@ try {
     $ui.FolderButton.Add_Click({
         # Dokud není nic nainstalované, složka ještě neexistuje.
         $null = [IO.Directory]::CreateDirectory($AppsPath)
-        Start-Process -FilePath $AppsPath
+        # Výslovně Průzkumník: Start-Process by si cestu ...\Branocesta\apps vyložil jako skript Apps.ps1,
+        # který leží hned vedle, a otevřel by ten.
+        Start-Process -FilePath "$env:SystemRoot\explorer.exe" -ArgumentList "`"$AppsPath`""
     })
     $ui.RefreshButton.Add_Click({ Start-Refresh })
+    $ui.GatewayUpdate.Add_Click({ Start-GatewayUpdate })
     $window.Add_KeyDown({
         param($source, $e)
         if ($e.Key -ne 'F5') { return }
@@ -413,6 +457,7 @@ try {
         Complete-Work
         Complete-Launch
         $ui.RefreshButton.IsEnabled = -not ($jobs.Count -or $state.Launch)
+        $ui.GatewayUpdate.IsEnabled = $ui.RefreshButton.IsEnabled -and $state.Gateway.Phase -eq 'Idle'
 
         if ($Screenshot -and -not $jobs.Count) {
             # Po poslední úloze ještě chvilka na vykreslení.

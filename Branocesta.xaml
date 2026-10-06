@@ -480,11 +480,17 @@
 
         </UniformGrid>
 
-        <DockPanel Margin="0,16,0,0">
+        <!-- Výška je daná předem, ať se okno nenatáhne, až se tlačítko pro aktualizaci brány objeví. -->
+        <DockPanel Margin="0,9,0,-7" MinHeight="30">
             <TextBlock x:Name="VersionText" DockPanel.Dock="Right" FontSize="12" Foreground="{StaticResource Muted}"
-                       Margin="16,0,0,0"/>
-            <!-- Když vyjde nová verze brány, Branocesta.ps1 sem místo nápovědy napíše, co s ní udělala. -->
+                       Margin="16,0,0,0" VerticalAlignment="Center"/>
+            <!-- Jen když vyšla novější brána; ukazuje ho Branocesta.ps1. -->
+            <Button x:Name="GatewayUpdate" DockPanel.Dock="Right" Style="{StaticResource QuietButton}" Margin="16,0,0,0"
+                    Content="Aktualizovat bránu" Foreground="{StaticResource Accent}" Visibility="Collapsed"
+                    ToolTip="Stáhne novou verzi brány a otevře ji."/>
+            <!-- Když vyjde nová verze brány, Branocesta.ps1 sem místo nápovědy napíše, co se s ní děje. -->
             <TextBlock x:Name="FooterText" FontSize="12" Foreground="{StaticResource Muted}" TextWrapping="Wrap"
+                       VerticalAlignment="Center"
                        Text="Po spuštění aplikace se brána zavře. Všechno, co nainstaluješ, leží v jedné složce."/>
         </DockPanel>
     </StackPanel>

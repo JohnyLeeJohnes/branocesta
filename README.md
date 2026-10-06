@@ -18,8 +18,8 @@ Otevřeš bránu, klikneš na **Spustit** a jsi v aplikaci. Brána se přitom za
 
 - **Vybereš si, co chceš.** Na začátku není nainstalované nic. **Nainstalovat** stáhne z GitHubu nejnovější
   vydání aplikace; nic neklonuješ, nic nerozbaluješ. **Odinstalovat** ji zase odebere a tvoje data nechá být.
-- **Hlídá nová vydání.** Při každém otevření se podívá, jestli nevyšlo něco novějšího. U aplikace ti nabídne
-  **Aktualizovat**, sama sebe aktualizuje rovnou.
+- **Hlídá nová vydání.** Při každém otevření se podívá, jestli nevyšlo něco novějšího, a nabídne ti
+  **Aktualizovat**: u každé aplikace i u sebe samé. Sama od sebe nic nepřepisuje.
 - **Všechno na jednom místě.** Aplikace se instalují do jedné společné složky. **Složka aplikací** ti ji otevře.
 - **Nezdržuje.** Co už je nainstalované, jde spustit hned, i když kontrola ještě běží nebo nejsi na internetu.
 - **Nic se nekompiluje.** Dva skripty v PowerShellu a jedno okno v XAML, stejně jako aplikace za bránou.
@@ -39,14 +39,14 @@ Otevřeš bránu, klikneš na **Spustit** a jsi v aplikaci. Brána se přitom za
 > `install.cmd` ho ze souborů sundá i sám, jenže k tomu ho Windows nejdřív musí nechat spustit.
 
 - **Jen vyzkoušet:** poklepej na `Branocesta.cmd`, spustí bránu bez vytváření zástupců.
-- **Nová verze brány:** nainstaluje se sama, viz níže. Ručně to jde rozbalením nového ZIPu přes starý.
-  Nainstalované aplikace zůstanou.
+- **Nová verze brány:** brána ji nabídne dole v okně tlačítkem **Aktualizovat bránu**, viz níže. Ručně to jde
+  rozbalením nového ZIPu přes starý. Nainstalované aplikace zůstanou.
 - **Přesunutí složky:** zástupce ukazuje tam, kde brána leží. Po přesunutí spusť `install.cmd` znovu.
 - **Odebrání:** smaž zástupce z plochy a z nabídky Start, složku s bránou a `%LOCALAPPDATA%\Branocesta`
   (tam jsou nainstalované aplikace). Jejich data zůstanou, kde byla, viz níže.
 - **Z gitu:** `git clone https://github.com/JohnyLeeJohnes/branocesta.git` a pak rovnou krok 4. Klonování
   označení z internetu nepřidává, takže odblokování odpadá. Naklonovanou bránu aktualizuješ přes `git pull`;
-  sama se nepřepisuje, aby ti nezahodila rozdělané úpravy.
+  tlačítko pro aktualizaci se u ní neukazuje, aby ti nezahodila rozdělané úpravy.
 
 Potřebuješ Windows 10 nebo 11 (Windows PowerShell 5.1 je jejich součástí) a pro stahování internet.
 Vyzkoušeno na Windows 11.
@@ -60,8 +60,8 @@ Vyzkoušeno na Windows 11.
 4. **Spustit** pustí aplikaci stejně jako její vlastní zástupce (bez okna konzole). Brána počká, až se okno
    aplikace ukáže, pošle ho dopředu a zavře se.
 5. **Odinstalovat** smaže složku aplikace. Data, která si aplikace drží jinde, zůstanou.
-6. Stejně se brána zeptá i na své vlastní vydání. Když vyšlo novější, přepíše si na pozadí soubory a dole
-   v okně to napíše. Novou verzi uvidíš při příštím otevření; okno, které už běží, se pod rukama nemění.
+6. Stejně se brána zeptá i na své vlastní vydání. Když vyšlo novější, napíše to dole v okně a nabídne
+   **Aktualizovat bránu**. Po kliknutí si stáhne nové soubory, přepíše jimi své a otevře se znovu, už v nové verzi.
 
 Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vydání** nebo klávesa F5 se podívá znovu.
 
@@ -126,6 +126,6 @@ powershell -ExecutionPolicy Bypass -File Branocesta.ps1 -AppsPath <složka> -Scr
 timer), Službák (Prague open-data dashboard) and Měšec (budget tracker). On start it asks GitHub for the
 latest release of each app. Nothing is installed by default: each card lets you install, update, uninstall
 or launch its app, and everything is installed into one folder, `%LOCALAPPDATA%\Branocesta\apps`. Launching
-an app closes the gateway. The gateway keeps itself up to date. It is a PowerShell script with a WPF
+an app closes the gateway. The gateway offers to update itself the same way. It is a PowerShell script with a WPF
 window: download `Branocesta.zip` from the latest release, unblock and extract it, and run `install.cmd` to
 get a desktop shortcut. Nothing to compile. The interface is in Czech.

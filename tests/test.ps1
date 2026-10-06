@@ -171,17 +171,17 @@ $appRoot = Join-Path $temp 'okno'
 $marker = Join-Path $temp 'spusteno.txt'
 # Vymyšlený Spáč zapíše, ve které složce ho brána pustila, a na chvíli ukáže okno: na to brána čeká, než se zavře.
 # (Jen ASCII: skript v ZIPu nemá BOM.)
-$fakeSpac = @"
-[IO.File]::WriteAllText('$marker', (Get-Location).Path)
+$fakeWindow = @'
 Add-Type -AssemblyName PresentationFramework, WindowsBase
-`$window = New-Object Windows.Window
-`$window.Title = 'Zkusebni Spac'; `$window.Width = 260; `$window.Height = 120
-`$timer = New-Object Windows.Threading.DispatcherTimer
-`$timer.Interval = [TimeSpan]::FromSeconds(3)
-`$timer.Add_Tick({ `$window.Close() })
-`$timer.Start()
-`$null = `$window.ShowDialog()
-"@
+$window = New-Object Windows.Window
+$window.Title = 'Zkusebni okno'; $window.Width = 260; $window.Height = 120
+$timer = New-Object Windows.Threading.DispatcherTimer
+$timer.Interval = [TimeSpan]::FromSeconds(3)
+$timer.Add_Tick({ $window.Close() })
+$timer.Start()
+$null = $window.ShowDialog()
+'@
+$fakeSpac = "[IO.File]::WriteAllText('$marker', (Get-Location).Path)`n$fakeWindow"
 Publish 'spac' 'v1.0.0' @{ 'Spac/Spac.ps1' = $fakeSpac }
 Publish 'sluzbak' 'v0.4.0' @{ 'Sluzbak/Sluzbak.ps1' = "'nic'" }
 Publish 'mesec' 'v1.0.0' @{ 'Mesec/Mesec.ps1' = "'nic'" }
@@ -307,35 +307,59 @@ Open-Gateway @(
 )
 
 # ---- Brána aktualizuje sama sebe ----
-# Zkouší se na kopii v dočasné složce: vydání brány je vymyšlené a skutečné soubory by přepsalo nesmyslem.
+# Zkouší se na kopiích v dočasné složce: vydání brány je vymyšlené a skutečné soubory by přepsalo nesmyslem.
 
-$copy = Join-Path $temp 'brana'
-$null = New-Item -ItemType Directory -Force "$copy\assets", "$copy\.git"
-foreach ($name in 'Branocesta.ps1', 'Apps.ps1', 'Branocesta.xaml', 'assets\branocesta.ico') { Copy-Item "$repo\$name" "$copy\$name" }
-Publish 'branocesta' 'v99.0.0' @{
-    'Branocesta/Branocesta.ps1' = 'nová brána'; 'Branocesta/Apps.ps1' = 'nové aplikace'
-    'Branocesta/Branocesta.xaml' = 'nové okno'; 'Branocesta/assets/branocesta.ico' = 'nová ikona'
+function New-GatewayCopy([string]$name) {
+    $path = Join-Path $temp $name
+    $null = New-Item -ItemType Directory -Force "$path\assets"
+    foreach ($file in 'Branocesta.ps1', 'Apps.ps1', 'Branocesta.xaml', 'assets\branocesta.ico') { Copy-Item "$repo\$file" "$path\$file" }
+    $path
 }
 $hint = 'Po spuštění aplikace se brána zavře. Všechno, co nainstaluješ, leží v jedné složce.'
+# Vymyšlená nová brána zapíše, s jakými parametry ji ta stará otevřela, a na chvíli ukáže okno.
+$reopened = Join-Path $temp 'znovu.txt'
+$fakeGateway = "param([string]`$AppsPath, [string]`$Source)`n[IO.File]::WriteAllText('$reopened', `"`$AppsPath|`$Source`")`n$fakeWindow"
+Publish 'branocesta' 'v99.0.0' @{
+    'Branocesta/Branocesta.ps1' = $fakeGateway; 'Branocesta/Apps.ps1' = 'nové aplikace'
+    'Branocesta/Branocesta.xaml' = 'nové okno'; 'Branocesta/assets/branocesta.ico' = 'nová ikona'
+}
 
+$copy = New-GatewayCopy 'brana'
+$null = New-Item -ItemType Directory "$copy\.git"
 Open-Gateway -from $copy @(
     {
-        Check 'pracovní kopii z gitu brána nepřepisuje' "$($ui.FooterText.Text) | $([IO.File]::ReadAllText("$copy\Apps.ps1") -eq 'nové aplikace')" "$hint | False"
+        Check 'pracovní kopii z gitu brána aktualizaci nenabízí' "$($ui.FooterText.Text) | $($ui.GatewayUpdate.Visibility)" "$hint | Collapsed"
     }
 )
 
 Remove-Item "$copy\.git"
 Open-Gateway -from $copy @(
     {
-        Check 'nainstalovaná brána si stáhne své nové vydání' $ui.FooterText.Text 'Brána se aktualizovala na verzi 99.0.0. Uvidíš ji při příštím otevření.'
-        Check 'a přepíše své soubory, i ikonu, kterou má okno načtenou' (('Branocesta.ps1', 'Apps.ps1', 'Branocesta.xaml', 'assets\branocesta.ico' | ForEach-Object { [IO.File]::ReadAllText("$copy\$_") }) -join ' | ') 'nová brána | nové aplikace | nové okno | nová ikona'
-        Check 'vedle nezbydou rozdělané soubory' (@(Get-ChildItem $copy -Recurse -Filter *.new).Count) 0
+        Check 'nainstalovaná brána novou verzi nabídne, ale sama se nepřepíše' "$($ui.FooterText.Text) | $($ui.GatewayUpdate.Visibility) | $([IO.File]::ReadAllText("$copy\Apps.ps1") -eq 'nové aplikace')" 'Vyšla verze 99.0.0 brány. | Visible | False'
+        Click $ui.GatewayUpdate
+        Check 'aktualizace brány je vidět a karty jsou po tu dobu zamčené' "$($ui.FooterText.Text) | $(Card 'Spac')" 'Stahuju verzi 99.0.0 brány… | verze 1.1.0 | Máš nejnovější vydání. | (Launch) (Remove) | Hidden'
+    }
+)
+Check 'po aktualizaci se stará brána zavře sama, až nová ukáže okno' $script:closedByTest $false
+Check 'brána přepíše své soubory, i ikonu, kterou má okno načtenou' (('Apps.ps1', 'Branocesta.xaml', 'assets\branocesta.ico' | ForEach-Object { [IO.File]::ReadAllText("$copy\$_") }) -join ' | ') 'nové aplikace | nové okno | nová ikona'
+Check 'vedle nezbydou rozdělané soubory' (@(Get-ChildItem $copy -Recurse -Filter *.new).Count) 0
+Check 'nová brána se otevře se stejnými parametry' $(if (Test-Path $reopened) { [IO.File]::ReadAllText($reopened) } else { 'neotevřela se' }) "$appRoot|$source"
+
+# Nová brána, která se neotevře: stará musí zůstat a dál fungovat.
+$broken = New-GatewayCopy 'rozbita'
+Publish 'branocesta' 'v99.0.0' @{ 'Branocesta/Branocesta.ps1' = "'nic'"; 'Branocesta/Apps.ps1' = 'nové aplikace'; 'Branocesta/Branocesta.xaml' = 'nové okno' }
+Open-Gateway -from $broken @(
+    {
+        Click $ui.GatewayUpdate
+    }
+    {
+        Check 'když se nová brána neotevře, stará zůstane a řekne to' "$($ui.FooterText.Text) | $($ui.GatewayUpdate.Visibility) | $($window.IsVisible)" 'Brána se aktualizovala na verzi 99.0.0. Zavři ji a otevři znovu, ať běží ta nová. | Collapsed | True'
         Click $ui.RefreshButton
     }
     {
         # Na disku je teď z Apps.ps1 nesmysl; okno, které už běží, musí dál pracovat s tím, co načetlo při startu.
         Check 'běžící okno po aktualizaci brány funguje dál' (Card 'Spac') 'verze 1.1.0 | Máš nejnovější vydání. | Launch Remove | Hidden'
-        Check 'a podruhé už se brána nepřepisuje' $ui.FooterText.Text 'Brána se aktualizovala na verzi 99.0.0. Uvidíš ji při příštím otevření.'
+        Check 'a aktualizaci už znovu nenabízí' "$($ui.FooterText.Text -match '^Brána se aktualizovala') | $($ui.GatewayUpdate.Visibility)" 'True | Collapsed'
     }
 )
 
