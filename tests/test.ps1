@@ -24,6 +24,8 @@ function Fails([scriptblock]$action) {
 }
 
 . (Join-Path $repo 'Apps.ps1')
+# Apps.ps1 si knihovny pro ZIP načítá, až když rozbaluje; Publish je potřebuje dřív.
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 
 # Vymyšlené vydání ve složce $source: popis <repozitář>.json a ZIP se soubory ($entries = cesta v ZIPu -> obsah).
 function Publish([string]$repository, [string]$tag, $entries) {
@@ -142,6 +144,21 @@ Check 'odinstalovat nenainstalované nic neudělá' (Fails { Uninstall-App $cont
 $null = Install-Release $context $spac (Get-LatestRelease $context $spac)
 Check 'po odinstalování jde nainstalovat znovu' (Get-Installed $context $spac) 'v1.2.0'
 
+# ---- Paměť vydání ----
+
+$memory = @{ Source = $source; Root = (Join-Path $temp 'pamet') }
+Check 'bez souboru si brána nepamatuje nic' (Read-Known $memory).Count 0
+$asked = [DateTime]::new(2026, 10, 6, 12, 0, 0, [DateTimeKind]::Utc)
+Save-Known $memory @{
+    Spac = @{ Checked = $asked; Release = @{ Tag = 'v1.2.0'; Url = 'https://x/spac.zip'; Accept = 'application/octet-stream' } }
+    Mesec = @{ Checked = $asked.AddMinutes(5); Release = @{ Tag = 'v1.0.0'; Url = 'https://x/mesec'; Accept = 'application/vnd.github+json' } }
+}
+$known = Read-Known $memory
+Check 'co si brána zapíše, to si přečte' "$($known.Spac.Release.Tag) $($known.Spac.Release.Url) $($known.Spac.Release.Accept) $($known.Mesec.Release.Tag)" 'v1.2.0 https://x/spac.zip application/octet-stream v1.0.0'
+Check 'i s časem dotazu' "$($known.Spac.Checked -eq $asked) $($known.Spac.Checked.Kind) $($known.Mesec.Checked -eq $asked.AddMinutes(5))" 'True Utc True'
+[IO.File]::WriteAllText("$($memory.Root)\.releases", "nesmysl`r`nSpac`tnení číslo`tv1`thttps://x`ta`r`n")
+Check 'soubor, který nejde přečíst, je jako žádný' (Read-Known $memory).Count 0
+
 # ---- Brána sama ----
 
 Check 'novější je jen vyšší číslo verze' ((@('v1.1.0', '1.0.0'), @('v1.0.0', '1.0.0'), @('v0.9.0', '1.0.0'), @('v1.10.0', '1.9.0'), @('nocni', '1.0.0') |
@@ -182,10 +199,32 @@ $timer.Add_Tick({ $window.Close() })
 $timer.Start()
 $null = $window.ShowDialog()
 '@
-$fakeSpac = "[IO.File]::WriteAllText('$marker', (Get-Location).Path + '|' + `$env:BRANOCESTA)`n$fakeWindow"
+$fakeSpac = "[IO.File]::WriteAllText('$marker', (Get-Location).Path + '|' + `$env:BRANOCESTA + '|' + [Environment]::CurrentDirectory)`n$fakeWindow"
+# Vymyšlená aplikace, která umí bránu zavolat zpátky (čte BRANOCESTA_PID): chvíli ukazuje okno a pak buď
+# nastaví událost brány a zavře se ('zpet'), nebo se jen zavře ('konec').
+function New-FakeReturning([string]$how) {
+    "[IO.File]::WriteAllText('$temp\proces-$how.txt', `$PID)`n" + @'
+Add-Type -AssemblyName PresentationFramework, WindowsBase
+$window = New-Object Windows.Window
+$window.Title = 'Zkusebni okno'; $window.Width = 260; $window.Height = 120
+$timer = New-Object Windows.Threading.DispatcherTimer
+$timer.Interval = [TimeSpan]::FromMilliseconds(1500)
+$timer.Add_Tick({
+    $timer.Stop()
+    if ('HOW' -eq 'zpet') {
+        $signal = [Threading.EventWaitHandle]::OpenExisting("Branocesta.$env:BRANOCESTA_PID")
+        $null = $signal.Set()
+        Start-Sleep -Milliseconds 400
+    }
+    $window.Close()
+})
+$timer.Start()
+$null = $window.ShowDialog()
+'@.Replace('HOW', $how)
+}
 Publish 'spac' 'v1.0.0' @{ 'Spac/Spac.ps1' = $fakeSpac }
-Publish 'sluzbak' 'v0.4.0' @{ 'Sluzbak/Sluzbak.ps1' = "'nic'" }
-Publish 'mesec' 'v1.0.0' @{ 'Mesec/Mesec.ps1' = "'nic'" }
+Publish 'sluzbak' 'v0.4.0' @{ 'Sluzbak/Sluzbak.ps1' = '# nic' }
+Publish 'mesec' 'v1.0.0' @{ 'Mesec/Mesec.ps1' = '# nic' }
 
 function Click($button) { $button.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Primitives.ButtonBase]::ClickEvent)) }
 # Co je na kartě aplikace vidět: verze | stav | tlačítka (vypnutá v závorce) | běží linka
@@ -205,13 +244,17 @@ function Open-Gateway([scriptblock[]]$steps, [string]$from = $repo) {
     $giveUp = [DateTime]::UtcNow.AddSeconds(60)
     # Zavřel okno test, nebo se brána zavřela sama? Sama se zavírá jen po spuštění aplikace.
     $script:closedByTest = $false
+    # Bylo okno brány vidět, když čekala schovaná za aplikací?
+    $script:seenAway = ''
     $driver = [Windows.Threading.DispatcherTimer]::new()
     $driver.Interval = [TimeSpan]::FromMilliseconds(100)
     $driver.Add_Tick({
-        if (-not ($window -and $window.IsLoaded)) { return }
+        # Na vydání se brána ptá až po vykreslení okna; do té doby není co zkoušet.
+        if (-not ($window -and $window.IsLoaded -and $state.Started)) { return }
         try {
             # Okno visí nebo úlohy nedoběhly; bez tohohle by test nikdy neskončil.
             if ([DateTime]::UtcNow -gt $giveUp) { throw 'brána do minuty nedokončila, co měla rozdělané' }
+            if ($state.Away) { $script:seenAway = "schovaná=$(-not $window.IsVisible)"; return }
             if ($jobs.Count -or $state.Launch) { return }
             if ($queue.Count) { & $queue.Dequeue(); return }
         } catch { $script:fail++; Note "FAIL  průchod oknem spadl na řádku $($_.InvocationInfo.ScriptLineNumber): $_" }
@@ -229,7 +272,9 @@ Open-Gateway @(
         Check 'napoprvé není nainstalovaný Spáč' (Card 'Spac') 'není nainstalováno | Ke stažení je verze 1.0.0. | Install | Hidden'
         Check 'ani Službák' (Card 'Sluzbak') 'není nainstalováno | Ke stažení je verze 0.4.0. | Install | Hidden'
         Check 'ani Měšec' (Card 'Mesec') 'není nainstalováno | Ke stažení je verze 1.0.0. | Install | Hidden'
-        Check 'a sama brána nic nestáhne' (Test-Path $appRoot) $false
+        Check 'a sama brána nic nestáhne' (@(Get-ChildItem $appRoot -Directory).Count) 0
+        Check 'co se dozvěděla, si zapamatuje' ((Read-Known $context).Keys | Sort-Object) 'Mesec Sluzbak Spac'
+        Check 'v záloze čeká PowerShell na příští aplikaci' ($state.Standby -and -not $state.Standby.HasExited) $true
         Check 'ikona nenainstalované aplikace je ztlumená' ($ui.SpacIcon.Opacity -lt 1) $true
         Check 'dole je verze brány' ($ui.VersionText.Text -match '^Bránocesta \d+\.\d+\.\d+$') $true
 
@@ -246,7 +291,7 @@ Open-Gateway @(
 
         # Spáč a Službák vydaly novou verzi a vydání Měšce se nedá přečíst.
         Publish 'spac' 'v1.1.0' @{ 'Spac/Spac.ps1' = $fakeSpac }
-        Publish 'sluzbak' 'v0.5.0' @{ 'Sluzbak/Sluzbak.ps1' = "'nic'" }
+        Publish 'sluzbak' 'v0.5.0' @{ 'Sluzbak/Sluzbak.ps1' = '# nic' }
         Remove-Item "$source\mesec.json"
         $script:before = (Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc
         Click $ui.RefreshButton
@@ -285,9 +330,11 @@ Open-Gateway @(
 )
 
 Check 'a zavře se sama, jakmile aplikace okno ukáže' $script:closedByTest $false
-Check 'brána pustila Spáče v jeho složce a řekla mu, kam se vrátit' $(if (Test-Path $marker) { [IO.File]::ReadAllText($marker) } else { 'nespustil se' }) "$appRoot\Spac|$repo\Branocesta.ps1"
+Check 'brána pustila Spáče v jeho složce a řekla mu, kam se vrátit' $(if (Test-Path $marker) { [IO.File]::ReadAllText($marker) } else { 'nespustil se' }) "$appRoot\Spac|$repo\Branocesta.ps1|$appRoot\Spac"
 
 # Podruhé brána ukáže, co je na disku, a nic nemění: co je odinstalované, se samo nevrátí.
+# (Bez paměti z prvního otevření, ať se na vydání ptá znovu; paměť se zkouší až na konci.)
+Remove-Item "$appRoot\.releases"
 $before = (Get-Item "$appRoot\Spac\Spac.ps1").LastWriteTimeUtc
 Open-Gateway @(
     {
@@ -313,7 +360,7 @@ Open-Gateway @(
 function New-GatewayCopy([string]$name) {
     $path = Join-Path $temp $name
     $null = New-Item -ItemType Directory -Force "$path\assets"
-    foreach ($file in 'Branocesta.ps1', 'Apps.ps1', 'Branocesta.xaml', 'assets\branocesta.ico') { Copy-Item "$repo\$file" "$path\$file" }
+    foreach ($file in 'Branocesta.ps1', 'Apps.ps1', 'Standby.ps1', 'Branocesta.xaml', 'assets\branocesta.ico') { Copy-Item "$repo\$file" "$path\$file" }
     $path
 }
 $hint = 'Po spuštění aplikace se brána zavře. Všechno, co nainstaluješ, leží v jedné složce.'
@@ -348,7 +395,7 @@ Check 'nová brána se otevře se stejnými parametry' $(if (Test-Path $reopened
 
 # Nová brána, která se neotevře: stará musí zůstat a dál fungovat.
 $broken = New-GatewayCopy 'rozbita'
-Publish 'branocesta' 'v99.0.0' @{ 'Branocesta/Branocesta.ps1' = "'nic'"; 'Branocesta/Apps.ps1' = 'nové aplikace'; 'Branocesta/Branocesta.xaml' = 'nové okno' }
+Publish 'branocesta' 'v99.0.0' @{ 'Branocesta/Branocesta.ps1' = '# nic'; 'Branocesta/Apps.ps1' = 'nové aplikace'; 'Branocesta/Branocesta.xaml' = 'nové okno' }
 Open-Gateway -from $broken @(
     {
         Click $ui.GatewayUpdate
@@ -362,6 +409,54 @@ Open-Gateway -from $broken @(
         Check 'běžící okno po aktualizaci brány funguje dál' (Card 'Spac') 'verze 1.1.0 | Máš nejnovější vydání. | Launch Remove | Hidden'
         Check 'a aktualizaci už znovu nenabízí' "$($ui.FooterText.Text -match '^Brána se aktualizovala') | $($ui.GatewayUpdate.Visibility)" 'True | Collapsed'
     }
+)
+
+# ---- Paměť vydání a návrat z aplikace ----
+
+# Měšec a Službák umějí bránu zavolat zpátky: Měšec to udělá, Službák se jen zavře.
+Publish 'mesec' 'v1.0.0' @{ 'Mesec/Mesec.ps1' = (New-FakeReturning 'zpet') }
+Publish 'sluzbak' 'v0.6.0' @{ 'Sluzbak/Sluzbak.ps1' = (New-FakeReturning 'konec') }
+Publish 'spac' 'v1.5.0' @{ 'Spac/Spac.ps1' = $fakeSpac }
+Open-Gateway @(
+    {
+        Check 'na vydání, která zná z minula, se brána při otevření neptá' "$(Card 'Spac') || $(Card 'Sluzbak')" 'verze 1.1.0 | Máš nejnovější vydání. | Launch Remove | Hidden || verze 0.5.0 | Máš nejnovější vydání. | Launch Remove | Hidden'
+        # Vydání Měšce se minule zjistit nepodařilo.
+        Check 'na to, co nezná, se zeptá' (Card 'Mesec') 'není nainstalováno | Ke stažení je verze 1.0.0. | Install | Hidden'
+        Click $ui.RefreshButton
+    }
+    {
+        Check 'Zkontrolovat vydání se ptá vždycky' "$(Card 'Spac') || $(Card 'Sluzbak')" 'verze 1.1.0 | Vyšla verze 1.5.0. | Launch Update Remove | Hidden || verze 0.5.0 | Vyšla verze 0.6.0. | Launch Update Remove | Hidden'
+        Click $ui.MesecInstall
+        Click $ui.SluzbakUpdate
+    }
+    {
+        $script:standby = $state.Standby.Id
+        Click $ui.MesecLaunch
+    }
+    {
+        # Sem se dojde, až Měšec bránu zavolá zpátky.
+        Check 'za aplikací, která ji umí zavolat, čeká brána schovaná' $script:seenAway 'schovaná=True'
+        Check 'aplikace se rozběhla v záloze, ne v novém PowerShellu' ([IO.File]::ReadAllText("$temp\proces-zpet.txt")) $script:standby
+        Check 'na zavolání se brána ukáže znovu' "$($window.IsVisible) | $(Card 'Mesec')" 'True | verze 1.0.0 | Máš nejnovější vydání. | Launch Remove | Hidden'
+        Check 'na vydání se přitom neptá' "$(Card 'Spac') | $($jobs.Count)" 'verze 1.1.0 | Vyšla verze 1.5.0. | Launch Update Remove | Hidden | 0'
+        Check 'a připraví si novou zálohu' ($state.Standby -and $state.Standby.Id -ne $script:standby) $true
+        $script:seenAway = ''
+        Click $ui.SluzbakLaunch
+    }
+)
+Check 'když aplikace skončí a bránu nezavolá, skončí brána taky' "$script:seenAway | $script:closedByTest" 'schovaná=True | False'
+
+# Co brána ví déle než čtvrt hodiny, si při otevření ověří.
+Publish 'spac' 'v1.6.0' @{ 'Spac/Spac.ps1' = $fakeSpac }
+Open-Gateway @(
+    { Check 'čerstvou paměť brána neověřuje' (Card 'Spac') 'verze 1.1.0 | Vyšla verze 1.5.0. | Launch Update Remove | Hidden' }
+)
+$windowContext = @{ Source = $source; Root = $appRoot }
+$known = Read-Known $windowContext
+foreach ($id in @($known.Keys)) { $known[$id].Checked = [DateTime]::UtcNow.AddMinutes(-20) }
+Save-Known $windowContext $known
+Open-Gateway @(
+    { Check 'starou si ověří sama' (Card 'Spac') 'verze 1.1.0 | Vyšla verze 1.6.0. | Launch Update Remove | Hidden' }
 )
 
 $script:lines

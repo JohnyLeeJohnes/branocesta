@@ -1,6 +1,6 @@
 ﻿# Bránocesta: brána ke Spáči, Službákovi a Měšci. Každou z nich jde na její kartě nainstalovat z nejnovějšího
-# vydání na GitHubu, aktualizovat, odinstalovat a spustit; při spuštění se brána zavře.
-# Okno je popsané v Branocesta.xaml, vydání řeší Apps.ps1.
+# vydání na GitHubu, aktualizovat, odinstalovat a spustit; při spuštění brána zmizí.
+# Okno je popsané v Branocesta.xaml, vydání řeší Apps.ps1, aplikace se rozbíhají ve Standby.ps1.
 #   Branocesta.ps1                      spustí bránu
 #   Branocesta.ps1 -Install             vytvoří zástupce s ikonou v nabídce Start, na ploše a ve složce s bránou
 #   Branocesta.ps1 -AppsPath <složka>   aplikace instaluje jinam než do %LOCALAPPDATA% (testy)
@@ -42,21 +42,33 @@ if ($Install) {
     return
 }
 
-# Microsoft.VisualBasic je tu kvůli AppActivate: pošle okno jiného procesu dopředu (viz Complete-Launch).
-Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase, Microsoft.VisualBasic
+# Start brány je vidět: po kliknutí na zástupce i po návratu z aplikace se čeká, až se okno ukáže. Proto se
+# před jeho vykreslením dělá jen to, co je k němu potřeba; síť, vlákna na pozadí a ostatní přijdou až potom.
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 . (Join-Path $PSScriptRoot 'Apps.ps1')
 # Úlohy na pozadí si Apps.ps1 nenačítají z disku, ale z tohohle textu: běží tak ze stejné verze jako okno,
 # i když si brána mezitím přepíše vlastní soubory novým vydáním.
 $library = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Apps.ps1'))
 
-# Volání Windows API pro tmavý titulek. Když se Add-Type nepovede (třeba kvůli zásadám počítače),
-# brána běží dál, jen má titulek světlý.
+# Volání Windows API pro tmavý titulek, vlastní ikonu na hlavním panelu a uvolnění paměti schované brány.
+# Typ se skládá za běhu (Reflection.Emit): Add-Type by kvůli pár deklaracím pouštěl kompilátor C# a start by
+# to zdrželo o stovky milisekund. Když se to nepovede (třeba kvůli zásadám počítače), brána běží dál, jen má
+# titulek světlý, na hlavním panelu ikonu PowerShellu a schovaná si paměť drží.
 $native = $null
 try {
-    $native = Add-Type -Namespace Branocesta -Name Native -PassThru -MemberDefinition @'
-[DllImport("dwmapi.dll")]
-public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
-'@
+    $assembly = [AppDomain]::CurrentDomain.DefineDynamicAssembly((New-Object Reflection.AssemblyName 'BranocestaNative'), 'Run')
+    $type = $assembly.DefineDynamicModule('BranocestaNative').DefineType('Branocesta.Native', 'Public, Class')
+    $imports = @('dwmapi.dll', 'DwmSetWindowAttribute', @([IntPtr], [int], [int].MakeByRefType(), [int])),
+        @('shell32.dll', 'SetCurrentProcessExplicitAppUserModelID', @([string])),
+        @('psapi.dll', 'EmptyWorkingSet', @([IntPtr]))
+    foreach ($import in $imports) {
+        $method = $type.DefinePInvokeMethod($import[1], $import[0], 'Public, Static, PinvokeImpl', 'Standard', [int], [Type[]]$import[2], 'Winapi', 'Unicode')
+        $method.SetImplementationFlags('PreserveSig')
+    }
+    $native = $type.CreateType()
+    # Okno hostí powershell.exe, takže by ho Windows na hlavním panelu přiřadily k PowerShellu a ukázaly jeho
+    # ikonu. S vlastním označením je brána na panelu sama za sebe a s ikonou svého okna.
+    $null = $native::SetCurrentProcessExplicitAppUserModelID('JohnyLeeJohnes.Branocesta')
 } catch { }
 
 # Cesty z parametrů mohou být relativní k aktuální složce PowerShellu; .NET by je bral od složky procesu.
@@ -73,9 +85,18 @@ $context = @{ Source = $Source; Root = $AppsPath }
 # Sama sebe brána aktualizuje jen tam, kde je nainstalovaná. V pracovní kopii z gitu by jí vydání přepsalo
 # rozdělanou práci.
 $selfUpdates = -not (Test-Path -LiteralPath (Join-Path $PSScriptRoot '.git'))
-# Podle tohohle aplikace poznají, že je pustila brána, a kam se mají vrátit: jejich tlačítko zpět otevře
-# tenhle skript. Proměnnou zdědí každý proces, který brána pustí.
+# Podle tohohle aplikace poznají, že je pustila brána, a kam se mají vrátit. Proměnné zdědí každý proces,
+# který brána pustí.
+#   BRANOCESTA      cesta k tomuhle skriptu; tlačítko zpět ho umí otevřít znovu
+#   BRANOCESTA_PID  proces brány, která aplikaci pustila. Když aplikace tuhle cestu umí, brána se po jejím
+#                   spuštění nezavře, jen se schová a čeká na událost Branocesta.<PID> (viz Complete-Away):
+#                   návrat je pak okamžitý, protože se nic nestartuje.
 $env:BRANOCESTA = $PSCommandPath
+$env:BRANOCESTA_PID = $PID
+$back = New-Object Threading.EventWaitHandle $false, 'AutoReset', "Branocesta.$PID"
+
+# Jak dlouho platí, co GitHub o vydáních řekl naposled. Tlačítko Zkontrolovat vydání se ptá vždycky.
+$checkAfter = [TimeSpan]::FromMinutes(15)
 
 $state = @{
     # Id aplikace -> @{ Installed; Latest; Phase; Error; Fresh }
@@ -91,8 +112,18 @@ $state = @{
     #           jsou vyměněné, ale nová brána se sama neotevřela)
     #   Error   hláška, proč se aktualizace nepovedla
     Gateway = @{ Latest = $null; Phase = 'Idle'; Error = $null }
-    # Co brána pustila a na čí okno čeká: @{ App; Process; Since; GiveUp }, jinak $null (viz Start-Launch).
+    # Co o vydáních řekl GitHub naposled a kdy: Id -> @{ Checked; Release } (viz Read-Known v Apps.ps1).
+    Known = Read-Known $context
+    # Vlákna pro úlohy na pozadí; vzniknou až s první úlohou.
+    Pool = $null
+    # PowerShell nastartovaný dopředu, ve kterém se rozběhne příští aplikace (viz Start-Standby), jinak $null.
+    Standby = $null
+    # Co brána pustila a na čí okno čeká: @{ App; Script; Process; GiveUp }, jinak $null (viz Start-Launch).
     Launch = $null
+    # Aplikace, za kterou brána čeká schovaná: @{ App; Process }, jinak $null (viz Complete-Away).
+    Away = $null
+    # Okno už je vykreslené a první kontrola vydání začala.
+    Started = $false
     ShotDue = $null
 }
 
@@ -115,20 +146,23 @@ $worker = {
     }
 }.ToString()
 
-$pool = [RunspaceFactory]::CreateRunspacePool(1, 4)
-$pool.Open()
 $jobs = New-Object System.Collections.ArrayList
 
 # $done je jméno funkce, která dostane $tag (čeho se úloha týká) a její výsledek.
 # Jméno, ne blok: uzávěr by neviděl funkce skriptu.
 function Start-Work([string]$command, $arguments, [string]$done, $tag) {
+    if (-not $state.Pool) {
+        $state.Pool = [RunspaceFactory]::CreateRunspacePool(1, 4)
+        $state.Pool.Open()
+    }
     $shell = [PowerShell]::Create()
-    $shell.RunspacePool = $pool
+    $shell.RunspacePool = $state.Pool
     $null = $shell.AddScript($worker).AddArgument($library).AddArgument($command).AddArgument($arguments)
     $null = $jobs.Add(@{ Done = $done; Tag = $tag; Shell = $shell; Handle = $shell.BeginInvoke() })
 }
 
 function Complete-Work {
+    if (-not $jobs.Count) { return }
     foreach ($job in @($jobs | Where-Object { $_.Handle.IsCompleted })) {
         $jobs.Remove($job)
         $result = $null
@@ -196,10 +230,27 @@ function Update-App($app) {
 # Brána sama jen zjistí, jaké vydání je u každé aplikace nejnovější. Instalaci, aktualizaci i odinstalování
 # spouští až tlačítko na kartě. Chyba u jedné aplikace ostatní nezastaví.
 
-function Start-Refresh {
+# Ptala se brána na vydání téhle aplikace před chvílí? Pak se při otevření neptá znovu.
+function Test-Known($app) {
+    $known = $state.Known[$app.Id]
+    if (-not $known) { return $false }
+    $age = [DateTime]::UtcNow - $known.Checked
+    # Záporné stáří znamená přeřízené hodiny; takové odpovědi se nevěří.
+    $age -ge [TimeSpan]::Zero -and $age -lt $checkAfter
+}
+
+function Save-Check($app, $release) {
+    $state.Known[$app.Id] = @{ Checked = [DateTime]::UtcNow; Release = $release }
+    Save-Known $context $state.Known
+}
+
+# Při otevření brány a po návratu z aplikace se ptá jen na vydání, která nezná nebo zná už dlouho.
+# S -Force (tlačítko, F5) na všechna.
+function Start-Refresh([switch]$Force) {
     # Dokud něco běží, další kontrola nezačne: přepsala by stav karty, na které se zrovna pracuje.
     if ($jobs.Count -or $state.Launch) { return }
     foreach ($app in $apps) {
+        if (-not $Force -and (Test-Known $app)) { continue }
         $entry = $state.Apps[$app.Id]
         $entry.Phase = 'Checking'
         $entry.Error = $null
@@ -207,7 +258,7 @@ function Start-Refresh {
         Update-App $app
         Start-Work 'Get-LatestRelease' @($context, $app) 'Complete-Check' $app
     }
-    if ($selfUpdates -and $state.Gateway.Phase -eq 'Idle') {
+    if ($selfUpdates -and $state.Gateway.Phase -eq 'Idle' -and ($Force -or -not (Test-Known $gateway))) {
         Start-Work 'Get-LatestRelease' @($context, $gateway) 'Complete-GatewayCheck' $gateway
     }
 }
@@ -215,7 +266,10 @@ function Start-Refresh {
 function Complete-Check($app, $result) {
     $entry = $state.Apps[$app.Id]
     $entry.Phase = 'Idle'
-    if ($result.Ok) { $entry.Latest = $result.Data } else { $entry.Error = $result.Message }
+    if ($result.Ok) {
+        $entry.Latest = $result.Data
+        Save-Check $app $result.Data
+    } else { $entry.Error = $result.Message }
     Update-App $app
 }
 
@@ -285,7 +339,9 @@ function Update-Footer {
 }
 
 function Complete-GatewayCheck($app, $result) {
-    if (-not $result.Ok -or $state.Gateway.Phase -ne 'Idle') { return }
+    if (-not $result.Ok) { return }
+    Save-Check $gateway $result.Data
+    if ($state.Gateway.Phase -ne 'Idle') { return }
     $state.Gateway.Latest = if (Test-Newer $result.Data.Tag $version) { $result.Data }
     Update-Footer
 }
@@ -315,71 +371,170 @@ function Complete-GatewayUpdate($release, $result) {
 }
 
 # ---- Spuštění aplikace ----
-# Brána aplikaci pustí, počká, až ukáže své okno, pošle ho dopředu a teprve pak se zavře. Kdyby se zavřela
-# hned, Windows by mezitím aktivovaly jiné okno a aplikace by se otevřela schovaná za ním: vypadalo by to,
-# že se nestalo nic. Stejně se brána po aktualizaci otevírá sama znovu.
+# Brána aplikaci pustí, počká, až ukáže své okno, pošle ho dopředu a teprve pak zmizí. Kdyby zmizela hned,
+# Windows by mezitím aktivovaly jiné okno a aplikace by se otevřela schovaná za ním: vypadalo by to, že se
+# nestalo nic. Stejně se brána po aktualizaci otevírá sama znovu.
+#
+# Nejdéle na spuštění trvá start PowerShellu a WPF. Brána si proto hned po svém otevření pustí schovaný
+# PowerShell dopředu (Standby.ps1, dál "záloha"): ten si WPF načte a čeká. Po kliknutí na Spustit mu brána
+# pošle cestu ke skriptu aplikace a aplikace se rozběhne v něm. Když brána skončí a nic nepustí, skončí
+# záloha s ní.
+
+# PowerShell bez okna konzole. Zástupci na to mají conhost --headless; brána pouští PowerShell rovnou, aby
+# znala jeho proces a poznala, kdy ukázal okno nebo skončil. S -Piped mu může psát na standardní vstup.
+function Start-Hidden([string]$arguments, [string]$directory, [switch]$Piped) {
+    $info = New-Object Diagnostics.ProcessStartInfo (Join-Path $PSHOME 'powershell.exe')
+    $info.Arguments = "-NoProfile -ExecutionPolicy Bypass $arguments"
+    $info.WorkingDirectory = $directory
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardInput = [bool]$Piped
+    [Diagnostics.Process]::Start($info)
+}
+
+function Start-Standby {
+    # U -Screenshot se okno hned zase zavře a nic se nepouští.
+    if ($state.Standby -or $Screenshot) { return }
+    # Bez zálohy se aplikace pustí pomaleji, ale pustí (viz Start-Launch).
+    try { $state.Standby = Start-Hidden "-File `"$(Join-Path $PSScriptRoot 'Standby.ps1')`"" $PSScriptRoot -Piped } catch { }
+}
+
+function Stop-Standby {
+    $standby = $state.Standby
+    $state.Standby = $null
+    # Zavřený vstup je pro zálohu pokyn skončit.
+    if ($standby) { try { $standby.StandardInput.Close() } catch { } }
+}
 
 # Pustí skript a zapamatuje si, že brána čeká na jeho okno. Vrací hlášku, když se to nepovede, jinak nic.
+# Aplikace se rozběhne v záloze. Nový PowerShell se startuje, jen když záloha není (ještě nevznikla, nebo
+# už skončila) a když brána po aktualizaci otevírá sama sebe: nová verze má začít v čistém procesu a se
+# svými parametry.
 function Start-Launch($app, [string]$script, [string]$extra) {
-    $since = Get-Date
-    try {
-        # conhost --headless spustí PowerShell bez okna konzole, stejně jako zástupci samotných aplikací.
-        $process = Start-Process -FilePath "$env:SystemRoot\System32\conhost.exe" -WorkingDirectory (Split-Path $script) -PassThru `
-            -ArgumentList "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$script`"$extra"
-    } catch { return "Spuštění se nepovedlo: $($_.Exception.Message)" }
-    $state.Launch = @{ App = $app; Process = $process; Since = $since; GiveUp = [DateTime]::UtcNow.AddSeconds(30) }
+    $process = $state.Standby
+    $sent = $false
+    if ($process -and $app.Id -ne $gateway.Id) {
+        $state.Standby = $null
+        try {
+            if (-not $process.HasExited) {
+                # Cesta jde v Base64: kódování vstupu si každý proces drží po svém a háčky by cestou nepřežily.
+                $line = [Text.Encoding]::ASCII.GetBytes([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script)) + "`n")
+                $process.StandardInput.BaseStream.Write($line, 0, $line.Length)
+                $sent = $true
+            }
+        } catch { }
+        # Zavřený vstup bez cesty je pro zálohu pokyn skončit; s cestou už ho nepotřebuje.
+        try { $process.StandardInput.Close() } catch { }
+    }
+    if (-not $sent) {
+        try { $process = Start-Hidden "-File `"$script`"$extra" (Split-Path $script) }
+        catch { return "Spuštění se nepovedlo: $($_.Exception.Message)" }
+    }
+    $state.Launch = @{ App = $app; Script = $script; Process = $process; GiveUp = [DateTime]::UtcNow.AddSeconds(30) }
 }
 
 function Start-App($app) {
     $entry = $state.Apps[$app.Id]
-    if ($state.Launch -or -not $entry.Installed -or (Test-SelfUpdating)) { return }
+    if ($state.Launch -or $state.Away -or -not $entry.Installed -or (Test-SelfUpdating)) { return }
+    # Co by teď přišlo po události Branocesta.<PID>, patří aplikaci, která už neběží.
+    $null = $back.Reset()
     $entry.Error = Start-Launch $app (Join-Path (Get-AppDirectory $context $app) $app.Script) ''
     if (-not $entry.Error) { $entry.Phase = 'Launching' }
     Update-App $app
 }
 
-# Id procesu PowerShellu, který vznikl po $since a už má okno; $null, dokud žádný takový není.
-function Find-AppProcess([datetime]$since) {
-    foreach ($process in [Diagnostics.Process]::GetProcessesByName('powershell')) {
-        try {
-            if ($process.Id -ne $PID -and $process.StartTime -ge $since -and $process.MainWindowHandle -ne [IntPtr]::Zero) { return $process.Id }
-        }
-        catch { }   # Proces mezitím skončil nebo k němu není přístup.
-        finally { $process.Dispose() }
-    }
+# Umí aplikace bránu zavolat zpátky? Pozná se to podle jejího skriptu: kdo tu cestu umí, čte proměnnou
+# BRANOCESTA_PID. Starší vydání ji neznají a bránu si otevírají znovu samy; kvůli nim nemá smysl čekat.
+function Test-Returns($launch) {
+    if ($launch.App.Id -eq $gateway.Id) { return $false }
+    try { [IO.File]::ReadAllText($launch.Script).Contains('BRANOCESTA_PID') } catch { $false }
 }
 
 # Volá se z časovače, dokud brána čeká na okno toho, co pustila.
 function Complete-Launch {
     $launch = $state.Launch
     if (-not $launch) { return }
+    $process = $launch.Process
+    $app = $launch.App
 
-    $id = Find-AppProcess $launch.Since
-    if ($id) {
+    # Process si odpovědi pamatuje; bez Refresh by okno neviděl nikdy.
+    $process.Refresh()
+    $exited = $process.HasExited
+    if (-not $exited -and $process.MainWindowHandle -ne [IntPtr]::Zero) {
         $state.Launch = $null
         # Brána je teď v popředí, takže smí dopředu poslat i cizí okno. Když to nevyjde, okno aplikace
         # zůstane tam, kde je.
-        try { [Microsoft.VisualBasic.Interaction]::AppActivate($id) } catch { }
-        $window.Close()
+        try { [Microsoft.VisualBasic.Interaction]::AppActivate($process.Id) } catch { }
+        if (-not (Test-Returns $launch)) {
+            $window.Close()
+            return
+        }
+        # Aplikace umí bránu zavolat zpátky: brána se jen schová a čeká na ni (viz Complete-Away).
+        $state.Apps[$app.Id].Phase = 'Idle'
+        Update-App $app
+        $state.Away = @{ App = $app; Process = $process }
+        $window.Hide()
+        # Schovaná brána může čekat hodiny. Okno WPF drží stovky megabajtů; takhle je Windows dostanou zpátky
+        # hned a brána si při návratu vezme jen to, co opravdu potřebuje.
+        [GC]::Collect()
+        if ($native) { $null = $native::EmptyWorkingSet([Diagnostics.Process]::GetCurrentProcess().Handle) }
         return
     }
 
-    $name = $launch.App.Name
-    # conhost žije, dokud běží PowerShell, který hostí; když skončil, skončila i aplikace.
-    $problem = if ($launch.Process.HasExited) { "$name skončil hned po spuštění." }
-        elseif ([DateTime]::UtcNow -gt $launch.GiveUp) { "$name se zatím neukázal. Jestli se neotevře, zkus to znovu." }
+    $problem = if ($exited) { "$($app.Name) skončil hned po spuštění." }
+        elseif ([DateTime]::UtcNow -gt $launch.GiveUp) { "$($app.Name) se zatím neukázal. Jestli se neotevře, zkus to znovu." }
     if (-not $problem) { return }
     $state.Launch = $null
-    if ($launch.App.Id -eq $gateway.Id) {
+    if ($app.Id -eq $gateway.Id) {
         # Soubory už jsou nové, jen se brána sama znovu neotevřela.
         $state.Gateway.Phase = 'Done'
         Update-Footer
         return
     }
-    $entry = $state.Apps[$launch.App.Id]
+    $entry = $state.Apps[$app.Id]
     $entry.Phase = 'Idle'
     $entry.Error = $problem
-    Update-App $launch.App
+    Update-App $app
+    # Zálohu spotřeboval nepovedený pokus; další má být zase rychlý.
+    Start-Standby
+}
+
+# ---- Návrat z aplikace ----
+# Aplikace, která to umí, bránu neotevírá znovu: nastaví událost Branocesta.<PID> a schovaná brána se
+# ukáže. Nic se nestartuje, takže je to hned. Když aplikace skončí a bránu nezavolá, skončí brána taky.
+
+# Vytáhne okno navrch, aniž by tam zůstalo natrvalo. Windows oknu, které se ukáže samo od sebe, popředí
+# nedají: zůstalo by schované za tím, co bylo aktivní předtím.
+function Show-OnTop {
+    $window.Topmost = $true
+    $window.Topmost = $false
+    $null = $window.Activate()
+}
+
+# Volá se z časovače, dokud je brána schovaná za aplikací.
+function Complete-Away {
+    $away = $state.Away
+    if (-not $away) { return }
+    $called = $back.WaitOne(0)
+    if (-not $called -and -not $away.Process.HasExited) { return }
+    $state.Away = $null
+    if (-not $called) {
+        $window.Close()
+        return
+    }
+
+    # Mezitím mohla jiná brána něco nainstalovat nebo odebrat a hlášky z doby před odchodem už neplatí.
+    foreach ($app in $apps) {
+        $entry = $state.Apps[$app.Id]
+        $entry.Installed = Get-Installed $context $app
+        $entry.Error = $null
+        $entry.Fresh = $null
+    }
+    Update-Footer
+    $window.Show()
+    Show-OnTop
+    Start-Refresh
+    Start-Standby
 }
 
 # ---- Obrázek okna ----
@@ -408,13 +563,13 @@ try {
         $window.Icon = [Windows.Media.Imaging.BitmapFrame]::Create($iconBytes, 'None', 'OnLoad')
     }
 
-    $ui = @{}
-    'FolderButton', 'RefreshButton', 'FooterText', 'GatewayUpdate', 'VersionText' | ForEach-Object { $ui[$_] = $window.FindName($_) }
+    $names = @('FolderButton', 'RefreshButton', 'FooterText', 'GatewayUpdate', 'VersionText')
     foreach ($app in $apps) {
-        'Icon', 'Version', 'Status', 'Busy', 'Launch', 'Install', 'Update', 'Remove' |
-            ForEach-Object { $ui["$($app.Id)$_"] = $window.FindName("$($app.Id)$_") }
+        foreach ($part in 'Icon', 'Version', 'Status', 'Busy', 'Launch', 'Install', 'Update', 'Remove') { $names += "$($app.Id)$part" }
     }
-    $missing = @($ui.Keys | Where-Object { $null -eq $ui[$_] } | Sort-Object)
+    $ui = @{}
+    foreach ($name in $names) { $ui[$name] = $window.FindName($name) }
+    $missing = @(foreach ($name in $names) { if ($null -eq $ui[$name]) { $name } })
     if ($missing) { throw "V Branocesta.xaml chybí prvky: $($missing -join ', ')" }
 
     $window.Add_SourceInitialized({
@@ -428,12 +583,14 @@ try {
         }
     })
 
-    # Když bránu otevře aplikace, která se hned nato zavře, Windows mezitím aktivují jiné okno a brána by
-    # zůstala schovaná za ním. Tohle ji vytáhne navrch, aniž by tam zůstala natrvalo.
     $window.Add_ContentRendered({
-        $window.Topmost = $true
-        $window.Topmost = $false
-        $null = $window.Activate()
+        # Když bránu otevře aplikace, která se hned nato zavře, Windows mezitím aktivují jiné okno.
+        Show-OnTop
+        # Okno je vidět; teď teprve to, co k jeho vykreslení nebylo potřeba.
+        Add-Type -AssemblyName Microsoft.VisualBasic   # AppActivate pošle dopředu okno jiného procesu (viz Complete-Launch)
+        Start-Refresh
+        Start-Standby
+        $state.Started = $true
     })
 
     foreach ($app in $apps) {
@@ -453,24 +610,31 @@ try {
         # který leží hned vedle, a otevřel by ten.
         Start-Process -FilePath "$env:SystemRoot\explorer.exe" -ArgumentList "`"$AppsPath`""
     })
-    $ui.RefreshButton.Add_Click({ Start-Refresh })
+    $ui.RefreshButton.Add_Click({ Start-Refresh -Force })
     $ui.GatewayUpdate.Add_Click({ Start-GatewayUpdate })
     $window.Add_KeyDown({
         param($source, $e)
         if ($e.Key -ne 'F5') { return }
-        Start-Refresh
+        Start-Refresh -Force
         $e.Handled = $true
     })
 
     $timer = [Windows.Threading.DispatcherTimer]::new()
+    # Po tomhle intervalu si brána všimne okna spuštěné aplikace i toho, že ji aplikace volá zpátky.
+    # Kratší by návrat zrychlil jen o desítky milisekund a schovaná brána by zbytečně budila procesor.
     $timer.Interval = [TimeSpan]::FromMilliseconds(100)
     $timer.Add_Tick({
+        # Schovaná brána jen čeká na aplikaci; na okně se nic nemění a úlohy na pozadí počkají na návrat.
+        if ($state.Away) {
+            Complete-Away
+            return
+        }
         Complete-Work
         Complete-Launch
         $ui.RefreshButton.IsEnabled = -not ($jobs.Count -or $state.Launch)
         $ui.GatewayUpdate.IsEnabled = $ui.RefreshButton.IsEnabled -and $state.Gateway.Phase -eq 'Idle'
 
-        if ($Screenshot -and -not $jobs.Count) {
+        if ($Screenshot -and $state.Started -and -not $jobs.Count) {
             # Po poslední úloze ještě chvilka na vykreslení.
             if (-not $state.ShotDue) { $state.ShotDue = [DateTime]::UtcNow.AddMilliseconds(600) }
             elseif ([DateTime]::UtcNow -ge $state.ShotDue) {
@@ -483,13 +647,26 @@ try {
     $ui.VersionText.Text = "Bránocesta $version"
     # Co je v zápatí napsané v XAML, platí, dokud není co říct o vydání brány.
     $footerHint = $ui.FooterText.Text
+    # Karty hned ukážou, co brána o vydáních ví z minula; na GitHub se ptá až po vykreslení okna, a jen když
+    # je to potřeba (viz Start-Refresh).
     foreach ($app in $apps) {
-        $state.Apps[$app.Id] = @{ Installed = Get-Installed $context $app; Latest = $null; Phase = 'Idle'; Error = $null; Fresh = $null }
+        $known = $state.Known[$app.Id]
+        $state.Apps[$app.Id] = @{
+            Installed = Get-Installed $context $app; Latest = $(if ($known) { $known.Release })
+            Phase = 'Idle'; Error = $null; Fresh = $null
+        }
     }
-    Start-Refresh
+    $known = $state.Known[$gateway.Id]
+    if ($selfUpdates -and $known -and (Test-Newer $known.Release.Tag $version)) { $state.Gateway.Latest = $known.Release }
+    Update-Footer
 
+    # Okno není dialog (ShowDialog): to by se schovat nedalo, schování dialog ukončí. Smyčka zpráv běží,
+    # dokud se okno nezavře, i když zrovna není vidět.
+    $frame = [Windows.Threading.DispatcherFrame]::new()
+    $window.Add_Closed({ $frame.Continue = $false })
     $timer.Start()
-    $null = $window.ShowDialog()
+    $window.Show()
+    [Windows.Threading.Dispatcher]::PushFrame($frame)
     $timer.Stop()
     # Rozdělaná instalace nebo odinstalování se nechají doběhnout: konec procesu uprostřed výměny souborů by
     # aplikaci nebo bránu nechal rozbitou. Ostatní úlohy jen čtou a na jejich dokončení se nečeká.
@@ -501,4 +678,8 @@ try {
 catch {
     # Konzole je schovaná, takže chybu jinak nikdo neuvidí.
     $null = [Windows.MessageBox]::Show("$_", 'Bránocesta', 'OK', 'Error')
+}
+finally {
+    Stop-Standby
+    $back.Dispose()
 }

@@ -7,7 +7,7 @@ Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 
 $root = Split-Path $PSScriptRoot
 # Testy, nástroje a obrázky do README zůstávají jen v repozitáři.
-$items = 'Branocesta.ps1', 'Branocesta.xaml', 'Apps.ps1', 'Branocesta.cmd', 'install.cmd', 'README.md', 'CHANGELOG.md', 'assets\branocesta.ico'
+$items = 'Branocesta.ps1', 'Branocesta.xaml', 'Apps.ps1', 'Standby.ps1', 'Branocesta.cmd', 'install.cmd', 'README.md', 'CHANGELOG.md', 'assets\branocesta.ico'
 
 $dist = Join-Path $root 'dist'
 $null = New-Item -ItemType Directory -Force $dist

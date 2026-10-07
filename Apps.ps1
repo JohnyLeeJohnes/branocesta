@@ -7,8 +7,9 @@
 # $context = @{ Source = $null; Root = '...' }
 # Root je jedna společná složka, do které se aplikace instalují (každá do <Root>\<Id>). Se Source = cesta ke složce se místo GitHubu čtou soubory
 # <repozitář>.json a <repozitář>.zip (viz Read-Source).
-
-Add-Type -AssemblyName System.Net.Http, System.IO.Compression, System.IO.Compression.FileSystem
+#
+# Knihovny pro síť a ZIP si funkce načítají samy, až když je potřebují: okno brány tenhle soubor čte při
+# startu a nemá se zdržovat ničím, co k vykreslení nepotřebuje.
 
 # Aplikace v pořadí, v jakém jsou v okně. Id je jméno složky po instalaci a předpona prvků v Branocesta.xaml,
 # Script soubor, kterým se aplikace spouští. Repozitáře jsou veřejné, takže se GitHubu není třeba prokazovat.
@@ -50,6 +51,7 @@ function ConvertTo-AppError([int]$status) {
 # Klient žije v globální proměnné, aby ho úlohy na pozadí sdílely a spojení se neotvíralo pokaždé znovu.
 function Get-HttpClient {
     if (-not $global:BranocestaHttp) {
+        Add-Type -AssemblyName System.Net.Http
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         $handler = New-Object System.Net.Http.HttpClientHandler
         $handler.AutomaticDecompression = 'GZip, Deflate'
@@ -63,10 +65,11 @@ function Get-HttpClient {
 
 # Vrátí tělo odpovědi jako bajty. $accept říká GitHubu, jestli chceme popis vydání, nebo samotný soubor.
 function Invoke-Http([string]$uri, [string]$accept) {
+    $client = Get-HttpClient
     $request = New-Object System.Net.Http.HttpRequestMessage ([Net.Http.HttpMethod]::Get), $uri
     $null = $request.Headers.TryAddWithoutValidation('Accept', $accept)
     try {
-        $response = (Get-HttpClient).SendAsync($request).GetAwaiter().GetResult()
+        $response = $client.SendAsync($request).GetAwaiter().GetResult()
         $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
     } catch {
         if ($_.Exception.GetBaseException() -is [OperationCanceledException]) {
@@ -102,6 +105,38 @@ function Get-LatestRelease($context, $app) {
     else { @{ Tag = [string]$release.tag_name; Url = [string]$release.zipball_url; Accept = 'application/vnd.github+json' } }
 }
 
+# ---- Paměť vydání ----
+# Co GitHub odpověděl naposled, si brána pamatuje v souboru <Root>\.releases, aby se při každém otevření
+# neptala znovu: návrat z aplikace pak nečeká na síť a nespotřebuje hodinový příděl dotazů.
+# Na řádku je Id aplikace, čas dotazu (UTC, ticks), tag, adresa a hlavička Accept, oddělené tabulátorem.
+# Paměť je jen pro pohodlí: když se nedá přečíst nebo zapsat, brána se zeptá GitHubu.
+
+$knownFile = '.releases'
+
+# Id -> @{ Checked (UTC); Release = @{ Tag; Url; Accept } }
+function Read-Known($context) {
+    $known = @{}
+    try {
+        foreach ($line in [IO.File]::ReadAllLines((Join-Path $context.Root $knownFile))) {
+            $id, $ticks, $tag, $url, $accept = $line -split "`t"
+            if (-not $accept) { continue }
+            $known[$id] = @{ Checked = [DateTime]::new([long]$ticks, [DateTimeKind]::Utc); Release = @{ Tag = $tag; Url = $url; Accept = $accept } }
+        }
+    } catch { }
+    $known
+}
+
+function Save-Known($context, $known) {
+    try {
+        $null = [IO.Directory]::CreateDirectory($context.Root)
+        $lines = foreach ($id in $known.Keys) {
+            $release = $known[$id].Release
+            $id, $known[$id].Checked.Ticks, $release.Tag, $release.Url, $release.Accept -join "`t"
+        }
+        [IO.File]::WriteAllLines((Join-Path $context.Root $knownFile), [string[]]@($lines))
+    } catch { }
+}
+
 function Get-AppDirectory($context, $app) { Join-Path $context.Root $app.Id }
 
 # Tag vydání, ze kterého je aplikace nainstalovaná; '' když nainstalovaná není.
@@ -115,6 +150,7 @@ function Get-Installed($context, $app) {
 # Rozbalí ZIP z paměti do složky. Vydání mají všechno v jedné složce (Sluzbak/, u archivu zdrojáků
 # JohnyLeeJohnes-spac-<commit>/); ta se vynechá, aby soubory aplikace ležely přímo v cíli.
 function Expand-Release([byte[]]$bytes, [string]$target) {
+    Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
     $stream = New-Object System.IO.MemoryStream (, $bytes)
     try { $zip = New-Object System.IO.Compression.ZipArchive $stream }
     catch { throw (New-AppError 'Unexpected' 'Stažené vydání není ZIP.') }
