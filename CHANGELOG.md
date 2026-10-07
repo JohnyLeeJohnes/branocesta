@@ -3,6 +3,29 @@
 Všechny podstatné změny v projektu. Formát vychází z [Keep a Changelog](https://keepachangelog.com/cs/1.1.0/),
 verze se řídí [sémantickým verzováním](https://semver.org/lang/cs/).
 
+## [1.5.0] - 2026-10-07
+
+### Přidáno
+
+- Vlastní ikona na hlavním panelu. Dosud tam brána měla ikonu PowerShellu, který její okno hostí.
+- Rychlá cesta zpátky. Za aplikací, která to umí, se brána nezavře, jen se schová a paměť vrátí Windows.
+  Tlačítko **Bránocesta** ji pak jen zavolá a nic se nestartuje: na počítači, kde brána vzniká, je zpátky
+  zhruba za pětinu vteřiny místo necelé vteřiny, na vytíženém počítači za půl vteřiny místo několika.
+  Aplikaci k tomu brána předá číslo svého procesu (proměnná prostředí `BRANOCESTA_PID`); jak ho použít, je
+  v README. Umí to Spáč od verze 1.4.0, Službák od 0.6.0 a Měšec od 1.2.0; u starších vydání klikni v bráně
+  na **Aktualizovat**, do té doby si bránu otevírají znovu sama, jako dřív.
+
+### Změněno
+
+- Aplikace se spouští zhruba dvakrát rychleji. Brána si hned po otevření pustí schovaný PowerShell, který
+  se rozcvičí a čeká (`Standby.ps1`); **Spustit** mu jen řekne, kterou aplikaci má rozběhnout. Když bránu
+  zavřeš a nic nepustíš, skončí s ní.
+- Brána se otevírá rychleji. Před vykreslením okna dělá jen to, co k němu potřebuje, a kvůli volání
+  Windows už nepouští kompilátor C#.
+- Na vydání se brána neptá při každém otevření. Co jí GitHub řekl, si čtvrt hodiny pamatuje (soubor
+  `.releases` ve složce aplikací), takže po návratu z aplikace karty nečekají na síť a neubývá hodinový
+  příděl dotazů. **Zkontrolovat vydání** a F5 se ptají vždycky.
+
 ## [1.4.0] - 2026-10-06
 
 ### Přidáno
@@ -97,6 +120,7 @@ První vydání.
 - Test `tests/test.ps1`, který zkouší instalaci vymyšlených vydání a projde okno, a `tools/make-release.ps1`,
   který sestaví `Branocesta.zip` pro GitHub Release.
 
+[1.5.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/JohnyLeeJohnes/branocesta/compare/v1.2.0...v1.2.1

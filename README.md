@@ -14,16 +14,18 @@
   <img src="docs/prehled.png" width="760" alt="Okno brány se třemi kartami: Spáč, Službák a Měšec">
 </p>
 
-Otevřeš bránu, klikneš na **Spustit** a jsi v aplikaci. Brána se přitom zavře, dál už vidíš jen to, co sis vybral.
+Otevřeš bránu, klikneš na **Spustit** a jsi v aplikaci. Brána přitom zmizí, dál už vidíš jen to, co sis vybral.
 Tlačítkem **Bránocesta** v aplikaci se do brány zase vrátíš.
 
 - **Vybereš si, co chceš.** Na začátku není nainstalované nic. **Nainstalovat** stáhne z GitHubu nejnovější
   vydání aplikace; nic neklonuješ, nic nerozbaluješ. **Odinstalovat** ji zase odebere a tvoje data nechá být.
-- **Hlídá nová vydání.** Při každém otevření se podívá, jestli nevyšlo něco novějšího, a nabídne ti
+- **Hlídá nová vydání.** Při otevření se podívá, jestli nevyšlo něco novějšího, a nabídne ti
   **Aktualizovat**: u každé aplikace i u sebe samé. Sama od sebe nic nepřepisuje.
 - **Všechno na jednom místě.** Aplikace se instalují do jedné společné složky. **Složka aplikací** ti ji otevře.
-- **Nezdržuje.** Co už je nainstalované, jde spustit hned, i když kontrola ještě běží nebo nejsi na internetu.
-- **Nic se nekompiluje.** Dva skripty v PowerShellu a jedno okno v XAML, stejně jako aplikace za bránou.
+- **Nezdržuje.** Aplikaci má rozběhnutou dřív, než na ni klikneš, a cesta zpátky do brány je hned, viz
+  [Proč je to rychlé](#proč-je-to-rychlé). Co už je nainstalované, jde spustit, i když kontrola vydání ještě
+  běží nebo nejsi na internetu.
+- **Nic se nekompiluje.** Tři skripty v PowerShellu a jedno okno v XAML, stejně jako aplikace za bránou.
 
 ## Instalace
 
@@ -54,20 +56,38 @@ Vyzkoušeno na Windows 11.
 
 ## Jak to funguje
 
-1. Brána se u každé aplikace zeptá GitHubu na nejnovější vydání (`/releases/latest`).
+1. Brána se u každé aplikace zeptá GitHubu na nejnovější vydání (`/releases/latest`). Odpověď si čtvrt
+   hodiny pamatuje, takže když se do ní za chvíli vrátíš, neptá se znovu.
 2. **Nainstalovat** ho stáhne a rozbalí do společné složky. Bere ZIP přiložený k vydání; když u vydání
    žádný není, archiv zdrojáků, který GitHub dělá ke každému tagu.
 3. Když později vyjde novější vydání, objeví se na kartě **Aktualizovat**. Samo se nic nepřepisuje.
-4. **Spustit** pustí aplikaci stejně jako její vlastní zástupce (bez okna konzole). Brána počká, až se okno
-   aplikace ukáže, pošle ho dopředu a zavře se.
-5. Aplikace spuštěná z brány má tlačítko **Bránocesta**: zavře ji a bránu znovu otevře. Brána jí k tomu při
-   spuštění předá, kde leží (proměnná prostředí `BRANOCESTA`). Když aplikaci pustíš jejím vlastním zástupcem,
-   tlačítko v ní není.
+4. **Spustit** pustí aplikaci bez okna konzole, stejně jako její vlastní zástupce. Brána počká, až se okno
+   aplikace ukáže, pošle ho dopředu a zmizí.
+5. Aplikace spuštěná z brány má tlačítko **Bránocesta**: zavře ji a vrátí tě do brány. Když aplikaci pustíš
+   jejím vlastním zástupcem, tlačítko v ní není.
 6. **Odinstalovat** smaže složku aplikace. Data, která si aplikace drží jinde, zůstanou.
 7. Stejně se brána zeptá i na své vlastní vydání. Když vyšlo novější, napíše to dole v okně a nabídne
    **Aktualizovat bránu**. Po kliknutí si stáhne nové soubory, přepíše jimi své a otevře se znovu, už v nové verzi.
 
-Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vydání** nebo klávesa F5 se podívá znovu.
+Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vydání** nebo klávesa F5 se zeptá GitHubu
+hned, i když si brána odpověď ještě pamatuje.
+
+## Proč je to rychlé
+
+Nejdéle na skriptu v PowerShellu trvá jeho start: než se rozběhne PowerShell a s ním okna (WPF), uteče
+kolem vteřiny, na vytíženém počítači i několik. Brána se mu proto vyhýbá, kde to jde.
+
+- **Aplikace startuje dřív, než na ni klikneš.** Hned po otevření si brána pustí schovaný PowerShell
+  (`Standby.ps1`), který se rozcvičí a čeká. **Spustit** mu jen řekne, kterou aplikaci má rozběhnout.
+  Když bránu zavřeš a nic nepustíš, skončí s ní.
+- **Cesta zpátky nic nestartuje.** Za aplikací, která to umí, se brána nezavře, jen se schová a paměť vrátí
+  Windows. Tlačítko **Bránocesta** jí dá vědět a ona se ukáže. Když aplikaci zavřeš křížkem, skončí i brána.
+  Umí to Spáč od verze 1.4.0, Službák od 0.6.0 a Měšec od 1.2.0; starší vydání si bránu otevírají znovu
+  sama, jako dřív.
+- **Okno je první.** Při startu brána udělá jen to, co potřebuje k vykreslení okna. Na vydání se ptá až
+  potom, a jen když je to potřeba.
+
+Jak se aplikace s bránou domlouvá, je popsané dole v [Úpravách](#úpravy).
 
 ## Dobré vědět
 
@@ -76,8 +96,11 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
   Aktualizace brány na ni nesahá.
 - **Tvoje data aktualizace ani odinstalování nesmaže.** Aplikace si je drží jinde: Službák v `%APPDATA%\Sluzbak`,
   Měšec v `%APPDATA%\Mesec`, Spáč v `%LOCALAPPDATA%\Spac`. Brána na ně nesahá.
-- **Po zavření nic neběží.** Brána i aplikace jsou každá jedno okno a s ním skončí. Na pozadí nezůstává nic,
-  co by hlídalo vydání nebo čekalo na spuštění.
+- **Po zavření nic neběží.** Dokud je brána otevřená, čeká vedle ní schovaný PowerShell na aplikaci, kterou
+  pustíš. Dokud běží aplikace, která se umí vrátit, čeká za ní schovaná brána. Jakmile bránu nebo aplikaci
+  zavřeš, skončí i to, co na ni čekalo. Nic nehlídá vydání na pozadí a nic se nespouští s Windows.
+- **Vlastní ikona na hlavním panelu.** Okno brány hostí PowerShell, a Windows by ji proto na panelu
+  ukazovaly s jeho ikonou. Brána se jim představí vlastním jménem a má tam svou.
 - **Běžící aplikaci nepřepisuje ani nemaže.** Když chceš aktualizovat nebo odinstalovat něco, co máš zrovna
   otevřené, brána ti napíše, ať to nejdřív zavřeš.
 - **Nepovedená instalace nic nerozbije.** Nové soubory se chystají vedle a složky se vymění až nakonec.
@@ -85,7 +108,8 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
 - **Vlastní zástupce aplikacím nedělá.** Pokud máš některou aplikaci nainstalovanou i samostatně, brána
   o ní neví a nijak jí nepřekáží; má svoji kopii.
 - **Bez přihlášení.** Repozitáře aplikací jsou veřejné. GitHub dovolí bez přihlášení 60 dotazů za hodinu
-  z jedné adresy; jedno otevření brány potřebuje čtyři a každá instalace nebo aktualizace jeden další.
+  z jedné adresy. Kontrola vydání potřebuje čtyři a brána ji dělá nejvýš jednou za čtvrt hodiny, pokud si
+  o ni neřekneš tlačítkem; každá instalace nebo aktualizace stojí jeden další.
 - **Proč skript, a ne `.exe`.** Nepodepsaný `.exe` umí Windows 11 (Smart App Control) zablokovat. Skript
   běží bez podpisu a před spuštěním si ho můžeš celý přečíst.
 - **Proč není instalace jedním příkazem.** Příkaz, který skript stáhne z internetu a rovnou ho spustí,
@@ -95,9 +119,10 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
 
 | Soubor | Obsah |
 | --- | --- |
-| `Branocesta.ps1` | Okno: karty aplikací, úlohy na pozadí, spuštění aplikace, vytvoření zástupců. |
+| `Branocesta.ps1` | Okno: karty aplikací, úlohy na pozadí, spuštění aplikace a návrat z ní, vytvoření zástupců. |
 | `Branocesta.xaml` | Vzhled okna: barvy, styly, karty. |
-| `Apps.ps1` | Seznam aplikací, dotaz na nejnovější vydání, instalace a odinstalování, aktualizace brány. O okně nic neví. |
+| `Apps.ps1` | Seznam aplikací, dotaz na nejnovější vydání a jeho paměť, instalace a odinstalování, aktualizace brány. O okně nic neví. |
+| `Standby.ps1` | PowerShell nastartovaný dopředu: rozcvičí se, počká na cestu ke skriptu aplikace a rozběhne ji. |
 | `Branocesta.cmd`, `install.cmd` | Spuštění bez instalace a vytvoření zástupců. |
 | `tools/make-icon.ps1` | Vygeneruje ikonu do `assets/`. |
 | `tools/make-release.ps1` | Sestaví `dist/Branocesta.zip` pro GitHub Release. |
@@ -107,6 +132,28 @@ Na kartě vidíš, kterou verzi máš a co se právě děje. **Zkontrolovat vyd�
 spouští) a do `Branocesta.xaml` kartu s prvky `<Id>Icon`, `<Id>Version`, `<Id>Status`, `<Id>Busy` a tlačítky
 `<Id>Launch`, `<Id>Install`, `<Id>Update` a `<Id>Remove`; nejsnáz zkopírováním jedné z těch tří.
 Vydání musí mít spouštěcí skript buď přímo v ZIPu, nebo v jedné společné složce.
+
+**Jak se aplikace vrací do brány.** Aplikaci spuštěné z brány zůstanou po bráně dvě proměnné prostředí:
+
+- `BRANOCESTA` je cesta k `Branocesta.ps1`. Podle ní aplikace pozná, že ji pustila brána, a ukáže tlačítko
+  zpět. Kdo neumí nic dalšího, ten skript po kliknutí pustí a zavře se, až se okno brány ukáže.
+- `BRANOCESTA_PID` je číslo procesu brány, která aplikaci pustila. Aplikace, která tu proměnnou čte, říká
+  tím, že bránu umí zavolat: brána to pozná z jejího spouštěcího skriptu, nezavře se a čeká schovaná.
+  Tlačítko zpět pak jen nastaví pojmenovanou událost `Branocesta.<PID>`, počká, až proces s tím číslem
+  ukáže okno, pošle ho dopředu a aplikaci zavře. Když událost otevřít nejde (brána už neběží nebo je starší),
+  zbývá první cesta.
+
+V PowerShellu je zavolání brány tohle:
+
+```powershell
+$called = $false
+try {
+    $signal = [Threading.EventWaitHandle]::OpenExisting("Branocesta.$env:BRANOCESTA_PID")
+    $called = $signal.Set()
+    $signal.Dispose()
+} catch { }
+if (-not $called) { <# otevři $env:BRANOCESTA jako dřív #> }
+```
 
 Jiné barvy? Paleta je na začátku `Branocesta.xaml`. Změny se projeví při dalším spuštění, nic se nesestavuje.
 Co se ve které verzi změnilo, je v [CHANGELOG.md](CHANGELOG.md).
@@ -118,7 +165,7 @@ powershell -ExecutionPolicy Bypass -File tests/test.ps1
 ```
 
 Na GitHub nesahá a tvých nainstalovaných aplikací se nedotkne: vydání má vymyšlená a všechno dělá
-v dočasné složce. Několikrát přitom na chvíli otevře okno brány.
+v dočasné složce. Několikrát přitom na chvíli otevře okno brány a vymyšlených aplikací.
 
 Obrázek v `docs/` vzniká takhle. Ukáže, co je ve složce, kterou zadáš; sám nic neinstaluje:
 
@@ -132,6 +179,8 @@ powershell -ExecutionPolicy Bypass -File Branocesta.ps1 -AppsPath <složka> -Scr
 timer), Službák (Prague open-data dashboard) and Měšec (budget tracker). On start it asks GitHub for the
 latest release of each app. Nothing is installed by default: each card lets you install, update, uninstall
 or launch its app, and everything is installed into one folder, `%LOCALAPPDATA%\Branocesta\apps`. Launching
-an app closes the gateway, and a button in each app brings it back. The gateway offers to update itself the same way. It is a PowerShell script with a WPF
+an app hides the gateway, and a button in each app brings it back. To keep that fast, the gateway starts a
+spare PowerShell ahead of time for the next app and waits hidden behind apps that know how to call it back.
+The gateway offers to update itself the same way as the apps. It is a PowerShell script with a WPF
 window: download `Branocesta.zip` from the latest release, unblock and extract it, and run `install.cmd` to
 get a desktop shortcut. Nothing to compile. The interface is in Czech.
